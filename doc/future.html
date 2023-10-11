@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>carpal Future</title>
+<link rel="stylesheet" href="carpal.css">
+</head>
+<body>
+
+<h1><tt>carpal::Future&lt;T&gt;</tt></h1>
+
+<h2>Overview</h2>
+
+<p><tt>#include "carpal/Future.h"</tt>
+
+<p>A <tt>carpal::Future&lt;T&gt;</tt> is a wrapper over a shared pointer to an object
+of type <a href="promise-future-pair.html"><tt>PromiseFuturePair&lt;T&gt;</tt></a>
+that represents the status and the result (when available)
+of an asynchronous operation.
+
+<p>The asynchronous operation is expected to return an object of type <tt>T</tt>. The type <tt>T</tt> may be <tt>void</tt>, otherwise
+it must be a movable type.
+
+<p><tt>carpal::Future&lt;T&gt;</tt> is copy-able. It can be constructed from a <tt>std::shared_ptr&lt;PromiseFuturePair&lt;T&gt; &gt;
+
+<p>A <tt>carpal::Future&lt;T&gt;</tt> is convertible to a <tt>carpal::Future&lt;void&gt;</tt>
+
+<p>See also:</b> <a href="promise.html"><tt>carpal::Promise&lt;T&gt;</tt></a>,
+<a href="promise-future-pair.html"><tt>carpal::PromiseFuturePair&lt;T&gt;</tt></a>
+
+<h2>Methods forwarding to referred <tt>PromiseFuturePair&lt;T&gt;</tt></h2>
+
+<h3 class="func-header" id="isComplete"><tt>bool isComplete() const noexcept</tt></h3>
+
+<p>Returns <tt>true</tt> if the underlying asynchronous operation is completed &mdash; either normally or by throwing an exception.
+
+<p>It calls <a href="promise-future-pair.html#isComplete"><tt>isComplete()</tt></a> on the referred <tt>PromiseFuturePair&lt;T&gt;</tt>.
+
+<p><b>See also:</b> <a href="#isCompletedNormally"><tt>isCompletedNormally()</tt></a>,
+<a href="#isException"><tt>isException()</tt></a>, <a href="#wait"><tt>wait()</tt></a>
+
+<h3 class="func-header" id="isCompletedNormally"><tt>bool isCompletedNormally() const noexcept</tt></h3>
+
+<p>Returns <tt>true</tt> if the underlying asynchronous operation completed normally (i.e., is completed and did not throw an exception).
+
+<p>It calls <a href="promise-future-pair.html#isCompletedNormally"><tt>isCompletedNormally()</tt></a> on the referred <tt>PromiseFuturePair&lt;T&gt;</tt>.
+
+<p><b>See also:</b> <a href="#isComplete"><tt>isComplete()</tt></a>,
+<a href="#isException"><tt>isException()</tt></a>, <a href="#wait"><tt>wait()</tt></a>
+
+<h3 class="func-header"  id="isException"><tt>bool isException() const noexcept</tt></h3>
+
+<p>Returns <tt>true</tt> if the underlying asynchronous operation completed by throwing an exception.
+
+<p>It calls <a href="promise-future-pair.html#isComplete"><tt>isComplete()</tt></a> on the referred <tt>PromiseFuturePair&lt;T&gt;</tt>.
+
+<p><b>See also:</b> <a href="#isException"><tt>isException()</tt></a>,
+
+<a href="#isException"><tt>isException()</tt></a>, <a href="#wait"><tt>wait()</tt></a>
+
+<h3 class="func-header"  id="wait"><tt>void wait() const noexcept</tt></h3>
+
+<p>Blocks the current thread until the underlying asynchronous operation completes. After this method returns, it is
+guaranteed that a call to <a href="#isComplete"><tt>isComplete()</tt></a> returns true and a call to
+<a href="#get"><tt>get()</tt></a> or to <a href="#getException"><tt>getException()</tt></a>
+returns immediately (does not block).
+
+<p>It calls <a href="promise-future-pair.html#wait"><tt>wait()</tt></a> on the referred <tt>PromiseFuturePair&lt;T&gt;</tt>.
+
+<p><b>See also:</b> <a href="#isComplete"><tt>isComplete()</tt></a>,
+<a href="#isCompletedNormally"><tt>isCompletedNormally()</tt></a>,
+<a href="#isException"><tt>isException()</tt></a>
+
+<h3 class="func-header"  id="get"><tt>T& get() const</tt><br><tt>void get() const</tt></h3>
+
+<p>Blocks the current thread until the underlying asynchronous operation completes. If it completes normally,
+then <tt>get()</tt> returns, by reference, a variable holding the value returned by the asynchronous operation.
+For the <tt>void</tt> specialization, <tt>get()</tt> returns <tt>void</tt>.<!-- TODO: add get() for void -->
+
+<p>The returned reference is valid for as long as the <tt>Future&lt;T&gt;</tt> for which it was called exists.
+
+<p>If the asynchronous operation completes by throwing an exception, <tt>get()</tt> re-throws that exception.
+
+<p>Multiple calls to <tt>get()</tt> are allowed, including multiple concurrent calls on different threads. All these calls
+return a reference to the same variable.
+
+<p>This function calls <a href="promise-future-pair.html#get"><tt>get()</tt></a> on the referred <tt>PromiseFuturePair&lt;T&gt;</tt>.
+
+<p><b>See also:</b> <a href="#getException"><tt>getException()</tt></a>,
+<a href="#isComplete"><tt>isComplete()</tt></a>,
+<a href="#isCompletedNormally"><tt>isCompletedNormally()</tt></a>,
+<a href="#isException"><tt>isException()</tt></a>
+
+<h3 class="func-header"  id="getException"><tt>std::exception_ptr getException() const noexcept</tt></h3>
+
+<p>Blocks the current thread until the underlying asynchronous operation completes. If it completes by throwing an exception,
+then <tt>getException()</tt> returns a <tt>std::exception_ptr</tt> holding that exception. If it completes normally,
+then <tt>getException()</tt> returns  <tt>nullptr</tt>.
+
+<p>Multiple calls to <tt>getException()</tt> are allowed, including multiple concurrent calls on different threads. All those calls
+will return the same exception pointer.
+
+<p>This function calls <a href="promise-future-pair.html#getException"><tt>getException()</tt></a> on the referred <tt>PromiseFuturePair&lt;T&gt;</tt>.
+
+<p><b>See also:</b> <a href="#get"><tt>get()</tt></a>,
+<a href="#isComplete"><tt>isComplete()</tt></a>,
+<a href="#isCompletedNormally"><tt>isCompletedNormally()</tt></a>,
+<a href="#isException"><tt>isException()</tt></a>
+
+<h2>Methods for composing asynchronous operations</h2>
+
+<h3 class="func-header"  id="then"><tt>template&lt;typename Func&gt;<br>
+    Future&lt;typename std::invoke_result&lt;Func&gt;::type&gt; then(Executor* pExecutor, Func func)</tt><br>
+    <tt>template&lt;typename Func&gt;<br>
+    Future&lt;typename std::invoke_result&lt;Func&gt;::type&gt; then(Func func)</tt></h3>
+
+<p>Schedules the function <tt>func()</tt> to be executed after the current future completes. Returns a future that completes
+with the value returned by <tt>func()</tt>.
+
+<p>The function <tt>func()</tt> must take a <tt>T</tt> as an argument (by value, by reference, by const reference). Its return type
+will be the type of the returned future.
+
+<p>If the current future completes with an exception, <tt>func()</tt> is not executed and the returned future completes with that exception.
+If <tt>func()</tt> throws an exception, the returned future completes with that exception.
+
+<p>The first variant executes <tt>func()</tt> on the specified executor, the second uses the default executor.
+
+<p>Example:
+<pre>
+carpal::Future&lt;int&gt; readInt(Stream&amp; stream);
+
+void test(Stream&amp; stream) {
+    readInt(stream)
+        .then([](int v){return v+1;})
+        .then([](int v){std::cout &lt;&lt; "read value + 1 = " &lt;&lt; v &lt;&lt; std::eoln;})
+        .wait();
+}  
+</pre>
+
+<h3 class="func-header"  id="thenAsync"><tt>template&lt;typename Func&gt;<br>
+    Future&lt;typename std::invoke_result&lt;Func&gt;::type::BaseType&gt; thenAsync(Executor* pExecutor, Func func)</tt><br>
+    <tt>template&lt;typename Func&gt;<br>
+    Future&lt;typename std::invoke_result&lt;Func&gt;::type::BaseType&gt; thenAsync(Func func)</tt></h3>
+
+<p>Schedules the asynchronous function <tt>func()</tt> to be executed after the current future completes. Returns a future that completes
+when the future returned by <tt>func()</tt> completes.
+
+<p>The function <tt>func()</tt> must take a <tt>T</tt> as an argument (by value, by reference, by const reference). Its return type
+will be the type of the returned future.
+
+<p>If the current future completes with an exception, <tt>func()</tt> is not executed and the returned future completes with that exception.
+If <tt>func()</tt> throws an exception, the returned future completes with that exception. If the future returned by <tt>func()</tt>
+completes with an exception, the future returned by this function also completes with that exception.
+
+<p>Example:
+<pre>
+carpal::Future&lt;int&gt; readInt(Stream&amp; stream);
+
+void test(Stream&amp; stream) {
+    carpal::Future&lt;int&gt; fRes = readInt(stream)
+        .thenAsync([&amp;stream](int a){
+            return readInt(stream).then([a](int b){return a+b;});
+        });
+    std::cout &lt;&lt; "sum of read values = " &lt;&lt; fRes.get() &lt;&lt; std::eoln;
+}  
+</pre>
+
+<p>The first variant executes <tt>func()</tt> on the specified executor, the second uses the default executor.
+
+<h3 class="func-header"  id="thenCatchAll"><tt>template&lt;typename Func&gt;<br>
+    Future&lt;T&gt; thenCatchAll(Executor* pExecutor, Func func)</tt><br>
+    <tt>template&lt;typename Func&gt;<br>
+    Future&lt;T&gt; thenCatchAll(Func func)</tt></h3>
+
+<p>Returns a future. If the current future completes normally, the returned future completes normally and with the same value.
+
+<p>If the current future completes with an exception, the function <tt>func()</tt> is invoked with the <tt>std::exception_ptr</tt>
+of the exception in the current future as argument. When <tt>func()</tt> returns, its return value &mdash; which must be convertible
+to <tt>T</tt> &mdash; is set into the returned future.
+
+<p>In the first form, <tt>func()</tt> executes on the specified executor, in the second one it executes on the default executor.
+
+<p>If <tt>func()</tt> throws an exception, the future returned by this function completes with that exception.
+
+<h3 class="func-header"  id="thenCatch"><tt>template&lt;typename Ex, typename Func&gt;<br>
+    Future&lt;T&gt; thenCatch(Executor* pExecutor, Func func)</tt><br>
+    <tt>template&lt;typename Ex, typename Func&gt;<br>
+    Future&lt;T&gt; thenCatch(Func func)</tt></h3>
+
+<p>Returns a future. If the current future completes normally, the returned future completes normally and with the same value.
+
+<p>If the current future completes with an exception of type <tt>Ex</tt> or publicly derived from it,
+the function <tt>func()</tt> is invoked with the exception object from the current future as an argument to <tt>func()</tt>.
+When <tt>func()</tt> returns, its return value &mdash; which must be convertible
+to <tt>T</tt> &mdash; is set into the returned future.
+
+<p>If the current future completes with some other exception, the future returned by this function completes with that exception.
+
+<p>In the first form, <tt>func()</tt> executes on the specified executor, in the second one it executes on the default executor.
+
+<p>If <tt>func()</tt> throws an exception, the future returned by this function completes with that exception.
+
+<p>Example:
+<pre>
+class MyException;
+carpal::Future&lt;int&gt; readInt(Stream&amp; stream); // may throw MyException
+
+void test(Stream&amp; stream) {
+    readInt(stream)
+        .then([](int a){std::cout &lt;&lt; "read value = " &lt;&lt; a &lt;&lt; std::eoln;})
+        .thenCatch&lt;MyException&gt;([](MyException&amp; ex){std::cout &lt;&lt; "exception: " &lt;&lt; ex &lt;&lt; std::eoln;})
+        .wait();
+}  
+</pre>
+
+<!-- TODO other members -->
+
+<h3 class="func-header"  id="thenCatchAllAsync"><tt>template&lt;typename Func&gt;<br>
+    Future&lt;T&gt; thenCatchAllAsync(Executor* pExecutor, Func func)</tt><br>
+    <tt>template&lt;typename Func&gt;<br>
+    Future&lt;T&gt; thenCatchAllAsync(Func func)</tt></h3>
+
+<p>Returns a future. If the current future completes normally, the returned future completes normally and with the same value.
+
+<p>If the current future completes with an exception, the function <tt>func()</tt> is invoked with the <tt>std::exception_ptr</tt>
+of the exception in the current future as argument. When the future returned by <tt>func()</tt> completes,
+its value is set into the future returned by the current function.
+
+<p>In the first form, <tt>func()</tt> executes on the specified executor, in the second one it executes on the default executor.
+
+<p>If <tt>func()</tt> throws an exception, or if the future it returns completes with an exception,
+then the future returned by this function completes with that exception.
+
+<p>This is the asynchronous version of <a href="#thenCatchAll"><tt>thenCatch()</tt></a>. It is similar to
+<a href="#thenCatchAllAsync"><tt>thenCatchAsync()</tt></a>, but the handler is invoked for all exceptions and get a
+<tt>std::exception_ptr</tt> instead of the exception object.
+
+
+<h3 class="func-header"  id="thenCatch"><tt>template&lt;typename Ex, typename Func&gt;<br>
+    Future&lt;T&gt; thenCatchAsync(Executor* pExecutor, Func func)</tt><br>
+    <tt>template&lt;typename Ex, typename Func&gt;<br>
+    Future&lt;T&gt; thenCatchAsync(Func func)</tt></h3>
+
+<p>Returns a future. If the current future completes normally, the returned future completes normally and with the same value.
+
+<p>If the current future completes with an exception of type <tt>Ex</tt> or publicly derived from it,
+the function <tt>func()</tt> is invoked with the exception object from the current future as an argument to <tt>func()</tt>.
+When the future returned by <tt>func()</tt> completes, its value is set into the future returned by the current function.
+
+<p>If the current future completes with some other exception, the future returned by this function completes with that exception.
+
+<p>In the first form, <tt>func()</tt> executes on the specified executor, in the second one it executes on the default executor.
+
+<p>If <tt>func()</tt> throws an exception, or if the future it returns completes with an exception,
+then the future returned by this function completes with that exception.
+
+<p>This is the asynchronous version of <a href="#thenCatch"><tt>thenCatch()</tt></a>. It is similar to
+<a href="#thenCatchAllAsync"><tt>thenCatchAllAsync()</tt></a>, but the handler is invoked only for the specific exception
+and gets the exception object instead of a <tt>std::exception_ptr</tt>.
+
+<h3 class="func-header"  id="thenAsyncLoop"><tt>template&lt;typename FuncCond, typename FuncBody&gt;<br>
+    Future&lt;T&gt; thenAsyncLoop(Executor* pExecutor, FuncCond cond, FuncBody body)<br>
+    template&lt;typename FuncCond, typename FuncBody&gt;<br>
+    Future&lt;T&gt; thenAsyncLoop(FuncCond cond, FuncBody body)</tt></h3>
+
+<p>Schedules the execution of looping of an asynchronous function.
+
+<p>This function immediately returns a <tt>Future&lt;T&gt;</tt>.
+
+<p>When the current future completes, then the <tt>cond()</tt> function is executed on its value.
+The function <tt>cond()</tt> must take a <tt>T</tt> and return a <tt>bool</tt>.
+If the value returned by <tt>cond()</tt> is false, the <tt>Future</tt> returned by <tt>thenAsyncLoop()</tt> is completed with
+that value.
+
+<p>Otherwise, the <tt>body()</tt> function is executed. It must take a <tt>T</tt> and return a <tt>Future&lt;T&gt;</tt>. When
+the future returned by <tt>body()</tt> completes, the loop repeats again: <tt>cond()</tt> is executed, if it returns <tt>false</tt>,
+then that <tt>T</tt> is set as the value of the future, otherwise <tt>body()</tt> is called again and so on.
+
+<p>If, at any stage, <tt>body()</tt> or <tt>cond()</tt> throws an exception, or if the <tt>Future</tt> returned by <tt>body()</tt>
+completes with an exception, then the loop terminates immediately and the <tt>Future</tt> returned by <tt>thenLoopAsync()</tt>
+completes with that exception.
+
+<p>For the <tt>void</tt> specialization, <tt>thenLoopAsync()</tt> works the same except that <tt>cond()</tt> and <tt>body()</tt> take no
+arguments (they still must return <tt>bool</tt> and <tt>Future&lt;void&gt;</tt>, respectively).<!-- TODO: verify this works this way -->
+
+<p>Example:
+<pre>
+carpal::Future&lt;int&gt; readInt(Stream&amp; stream);
+
+// This returns a future that completes with the sum of the numbers read from the stream.
+// The sequence of numbers is assumed to end with a -1
+carpal::Future&lt;int&gt; sumFromStream(Stream&amp; stream) {
+    // pair in the loop is the partial sum and the info whether the loop is to be continued
+    return carpal::completedFuture&lt;std::pair&lt;int,bool&gt; &gt;(std::make_pair(0, true))
+        .thenAsyncLoop(
+            [](std::pair&lt;int,bool&gt; p) -&gt; bool { return p.second;},
+            [&amp;stream](std::pair&lt;int,bool&gt; p) -&gt; std::pair&lt;int,bool&gt; {
+                return readInt(stream).then([p](int val)-&gt;{
+                    if(val >= 0) {
+                        return std::make_pair(p.first + val, true);
+                    } else {
+                        return std::make_pair(p.first, false);
+                    }
+                });
+            })
+        .then([](std::pair&lt;int,bool&gt; p) -&gt; int { return p.first;});
+}
+</pre>
+
+<address>
+This is part of the documentation of <tt>carpal</tt> project.<br>
+Copyright Radu Lupsa 2023<br>
+Distributed under the Boost Software License, Version 1.0.<br>
+(See accompanying file LICENSE.txt or copy at  https://www.boost.org/LICENSE_1_0.txt )<br>
+</address>
+
+</body>
+</html>

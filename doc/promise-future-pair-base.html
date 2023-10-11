@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>carpal PromiseFuturePairBase</title>
+<link rel="stylesheet" href="carpal.css">
+</head>
+<body>
+
+<h1><tt>carpal::PromiseFuturePairBase</tt></h1>
+
+<h2>Overview</h2>
+
+<p><tt>#include "carpal/PromiseFuturePair.h"</tt>
+
+<p><tt>carpal::PromiseFuturePairBase</tt> is the base class for the class template
+<a href="promise-future-pair.html"><tt>carpal::PromiseFuturePair&lt;T&gt;</tt></a>. See its documentation for the overview.
+
+<p><tt>carpal::PromiseFuturePairBase</tt> offers the basic operations, that are independent of the type of the data passed from
+the producer to the consumer.
+
+<h2>Methods</h2>
+
+<h3 class="func-header" id="isComplete"><tt>bool isComplete() const noexcept</tt></h3>
+
+<p>Returns <tt>true</tt> if the underlying asynchronous operation is completed &mdash; either normally or by throwing an exception.
+
+<p>Note that it is possible that this function returns false, but, by the time its caller sees the result, the asynchronous operation
+is already completed.
+
+<p><b>See also:</b> <a href="#isCompletedNormally"><tt>isCompletedNormally()</tt></a>,
+<a href="#isException"><tt>isException()</tt></a>, <a href="#wait"><tt>wait()</tt></a>
+
+<h3 class="func-header" id="isCompletedNormally"><tt>bool isCompletedNormally() const noexcept</tt></h3>
+
+<p>Returns <tt>true</tt> if the underlying asynchronous operation completed normally (i.e., is completed and did not throw an exception).
+
+<p><b>See also:</b> <a href="#isComplete"><tt>isComplete()</tt></a>,
+<a href="#isException"><tt>isException()</tt></a>, <a href="#wait"><tt>wait()</tt></a>
+
+<h3 class="func-header"  id="isException"><tt>bool isException() const noexcept</tt></h3>
+
+<p>Returns <tt>true</tt> if the underlying asynchronous operation completed by throwing an exception.
+
+<p><b>See also:</b> <a href="#isCompletedNormally"><tt>isCompletedNormally()</tt></a>,
+<a href="#isException"><tt>isException()</tt></a>, <a href="#wait"><tt>wait()</tt></a>
+
+<h3 class="func-header"  id="wait"><tt>void wait() const noexcept</tt></h3>
+
+<p>Blocks the current thread until the underlying asynchronous operation completes. After this method returns, it is
+guaranteed that a call to <a href="#isComplete"><tt>isComplete()</tt></a> returns true.
+
+<p><b>See also:</b> <a href="#isComplete"><tt>isComplete()</tt></a>,
+<a href="#isCompletedNormally"><tt>isCompletedNormally()</tt></a>,
+<a href="#isException"><tt>isException()</tt></a>
+
+<h3 class="func-header"  id="getException"><tt>std::exception_ptr getException() noexcept</tt></h3>
+
+<p>Blocks the current thread until the underlying asynchronous operation completes. If it completes by throwing an exception,
+then <tt>getException()</tt> returns a <tt>std::exception_ptr</tt> holding that exception. If it completes normally,
+then <tt>getException()</tt> returns  <tt>nullptr</tt>.
+
+<p>Multiple calls to <tt>getException()</tt> are allowed, including multiple concurrent calls on different threads. All those calls
+will return the same exception pointer.
+
+<p><b>See also:</b>
+<a href="#isComplete"><tt>isComplete()</tt></a>,
+<a href="#isCompletedNormally"><tt>isCompletedNormally()</tt></a>,
+<a href="#isException"><tt>isException()</tt></a>
+
+<h3 class="func-header"  id="addSynchronousCallback"><tt>void
+addSynchronousCallback(std::function&lt;void()&gt; callback)</tt></h3>
+
+<p>Sets the specified function to be executed when the <tt>PromiseFuturePairBase</tt> completes. If the <tt>PromiseFuturePairBase</tt>
+is not completed yet, then the callback will be called by the <a href="#notify"><tt>notify()</tt></a>
+function; otherwise, the callback is executed immediately, on the current thread, before <tt>addSynchronousCallback()</tt> returns.
+
+<p>Multiple concurrent calls to <tt>addSynchronousCallback()</tt> are allowed.
+
+<p>Care should be taken regarding blocking
+operations executed by the callback, in order to avoid potential deadlocks. In the typical usage, if a longer operation
+is to be executed, the callback only schedules that operation on some <a href="executor.html">executor</a>.
+
+<h3 class="func-header"  id="notify"><tt>void notify(PromiseFuturePairBase::State state)</tt></h3>
+
+<p>Protected function that sets the <tt>PromiseFuturePairBase</tt> completed. <tt>state</tt> tells whether the <tt>PromiseFuturePairBase</tt>
+should be completed with a value or with exception. The caller must set the value or the exception before calling this function. This function
+must be called exactly once in the lifetime of the object.
+
+<address>
+This is part of the documentation of <tt>carpal</tt> project.<br>
+Copyright Radu Lupsa 2023<br>
+Distributed under the Boost Software License, Version 1.0.<br>
+(See accompanying file LICENSE.txt or copy at  https://www.boost.org/LICENSE_1_0.txt )<br>
+</address>
+
+</body>
+</html>

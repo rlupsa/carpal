@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>carpal Futures stand-alone functions</title>
+<link rel="stylesheet" href="carpal.css">
+</head>
+<body>
+
+<h1><tt>carpal</tt> Futures stand-alone functions</h1>
+
+<h2 class="func-header"  id="completedFuture"><tt>Future&lt;void&gt; completedFuture()</tt><br>
+<tt>template&lt;typename T&gt;<br>
+Future&lt;T&gt; completedFuture(T val)</tt></h3>
+
+<p>Returns an already completed future, completed with the specified value.
+
+<h2 class="func-header"  id="completedFuture"><tt>template&lt;typename T&gt;<br>
+Future&lt;T&gt; exceptionFuture(std::exception_ptr ex)</tt></h3>
+
+<p>Returns an already completed future, completed with the specified exception.
+
+<h2 class="func-header"  id="runAsync"><tt>template&lt;typename Func&gt;<br>
+Future&lt;typename std::invoke_result&lt;Func&gt;::type&gt; runAsync(Executor* tp, Func func)</tt><br>
+<tt>template&lt;typename Func&gt;<br>
+Future&lt;typename std::invoke_result&lt;Func&gt;::type&gt; runAsync(Func func)</tt></h3>
+
+<p>Starts the function <tt>func()</tt> on the specified executor (for the first variant) or the default executor (the second variant).
+Returns a future that will complete with the value returned by <tt>func()</tt> when it ends.
+
+<p>If <tt>func()</tt> throws, the returned future completes with that exception.
+
+<h2 class="func-header"  id="whenAll"><tt>template&lt;typename Func, typename... T&gt;<br>
+Future&lt;typename std::invoke_result&lt;Func, T&amp;...&gt;::type&gt; whenAll(Executor* pTp, Func func, Future&lt;T&gt;... futures)</tt><br>
+<tt>template&lt;typename Func, typename... T&gt;<br>
+Future&lt;typename std::invoke_result&lt;Func, T&amp;...&gt;::type&gt; whenAll(Func func, Future&lt;T&gt;... futures)</tt></h3>
+
+<p>Schedules the function <tt>func()</tt> to start when all of the specified futures complete. The function <tt>func()</tt>
+will be invoked with the values of the futures as arguments. The future returned by <tt>whenAll()</tt> will complete
+with the value returned by <tt>func()</tt>.
+
+<p>In the first variant, <tt>func()</tt> runs on the specified executor; in the second variant, it runs on the default executor.
+
+<p>If one or more of the antecessor futures completes with an exception, <tt>func()</tt> is not invoked and the returned future completes
+with one of those exceptions.
+
+<p>If <tt>func()</tt> throws, the returned future completes with that exception.
+
+<h2 class="func-header"  id="whenAllFromFutures"><tt>template&lt;typename Func, typename... T&gt;<br>
+Future&lt;typename std::invoke_result&lt;Func, Future&lt;T&gt;...&gt;::type&gt; whenAllFromFutures(Executor* pTp, Func func, Future&lt;T&gt;... futures)</tt><br>
+<tt>template&lt;typename Func, typename... T&gt;<br>
+Future&lt;typename std::invoke_result&lt;Func, Future&lt;T&gt;...&gt;::type&gt; whenAllFromFutures(Func func, Future&lt;T&gt;... futures)</tt></h3>
+
+<p>Schedules the function <tt>func()</tt> to start when all of the specified futures complete. The function <tt>func()</tt>
+will be invoked with the futures as arguments. The future returned by <tt>whenAllFromFutures()</tt> will complete
+with the value returned by <tt>func()</tt>.
+
+<p>Note that, in this case <tt>func()</tt> gets the futures (guaranteed to be completed normally, at this point) as arguments,
+while in case of <tt>whenAll()</tt>, the <tt>func()</tt> gets the values of these futures.
+
+<p>In the first variant, <tt>func()</tt> runs on the specified executor; in the second variant, it runs on the default executor.
+
+<p>If one or more of the antecessor futures completes with an exception, <tt>func()</tt> is not invoked and the returned future completes
+with one of those exceptions.
+
+<p>If <tt>func()</tt> throws, the returned future completes with that exception.
+
+<h2 class="func-header"  id="whenAllFromArrayOfFutures"><tt>template&lt;typename Func, typename T&gt;<br>
+Future&lt;typename std::invoke_result&lt;Func, std::vector&lt;Future&lt;T&gt; &gt;::type&gt; whenAllFromArrayOfFutures(Executor* pTp, Func func, std::vector&lt;Future&lt;T&gt; &gt; futures)</tt><br>
+<tt>template&lt;typename Func, typename T&gt;<br>
+Future&lt;typename std::invoke_result&lt;Func, std::vector&lt;Future&lt;T&gt; &gt;::type&gt; whenAllFromArrayOfFutures(Func func, std::vector&lt;Future&lt;T&gt; &gt; futures)</tt></h3>
+
+<p>Schedules the function <tt>func()</tt> to start when all of the specified futures complete. The function <tt>func()</tt>
+will be invoked with the futures as arguments. The future returned by <tt>whenAllFromArrayOfFutures()</tt> will complete
+with the value returned by <tt>func()</tt>.
+
+<p>Note that, in this case <tt>func()</tt> gets the futures (guaranteed to be completed normally, at this point) as arguments,
+while in case of <tt>whenAll()</tt>, the <tt>func()</tt> gets the values of these futures.
+
+<p>In the first variant, <tt>func()</tt> runs on the specified executor; in the second variant, it runs on the default executor.
+
+<p>If one or more of the antecessor futures completes with an exception, <tt>func()</tt> is not invoked and the returned future completes
+with one of those exceptions.
+
+<p>If <tt>func()</tt> throws, the returned future completes with that exception.
+
+<address>
+This is part of the documentation of <tt>carpal</tt> project.<br>
+Copyright Radu Lupsa 2023<br>
+Distributed under the Boost Software License, Version 1.0.<br>
+(See accompanying file LICENSE.txt or copy at  https://www.boost.org/LICENSE_1_0.txt )<br>
+</address>
+
+</body>
+</html>

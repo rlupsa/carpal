@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>carpal Futures overview</title>
+<link rel="stylesheet" href="carpal.css">
+</head>
+<body>
+
+<h1><tt>carpal</tt> Futures overview</h1>
+
+<h2>Overview</h2>
+
+<p>The central class of the <em>carpal futures</em> mechanism is the template class
+<a href="promise-future-pair.html"><tt>carpal::PromiseFuturePair&lt;T&gt;</tt></a>. This is an object that will receive the return value
+of an asynchronous operation upon its completion. It may also receive an exception, if the asynchronous operation throws.</p>
+
+<p><tt>carpal::PromiseFuturePair&lt;T&gt;</tt> allows to:<ul>
+  <li>check whether the operation has completed or not and, if completed, whether it returned a value or threw an exception;
+  <li>retrieve the returned value or the exception, if completed;
+  <li>wait for completion;
+  <li>enqueue an operation &mdash; called <em>continuation</em> &mdash; to be executed when the asynchronous operation completes;
+  <li>declare the asynchronous operation complete by specifying the returned value or the exception.
+</ul>
+
+<p>The consumer &mdash; the caller of the asynchronous operation &mdash; typically receive a <a href="future.html"><tt>carpal::Future&lt;T&gt;</tt></a>,
+which is essentially a wrapper over a <tt>std::shared_ptr&lt;PromiseFuturePair&lt;T&gt;&nbsp;&gt;</tt>. A <tt>carpal::Future&lt;T&gt;</tt>
+offers access to the consumer facing operations of the <tt>carpal::PromiseFuturePair</tt>,
+plus some methods allowing to compose asynchronous operations.
+
+<p>Some of those methods involve executing code on an <a href="executor.html">executor</a> mechanism.
+
+<p>On the other hand, <a href="promise.html"><tt>carpal::Promise&lt;T&gt;</tt></a> is, similarly, a wrapper over a
+<tt>std::shared_ptr&lt;PromiseFuturePair&lt;T&gt;&nbsp;&gt;</tt> giving access to its producer facing methods.
+
+<p>There are also <a href="future-standalone.html">stand-alone functions</a> related to futures.
+<!-- TODO examples -->
+
+<address>
+This is part of the documentation of <tt>carpal</tt> project.<br>
+Copyright Radu Lupsa 2023<br>
+Distributed under the Boost Software License, Version 1.0.<br>
+(See accompanying file LICENSE.txt or copy at  https://www.boost.org/LICENSE_1_0.txt )<br>
+</address>
+
+</body>
+</html>

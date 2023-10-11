@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>carpal PromiseFuturePair</title>
+<link rel="stylesheet" href="carpal.css">
+</head>
+<body>
+
+<h1><tt>carpal::PromiseFuturePair&lt;T&gt;</tt></h1>
+
+<h2>Overview</h2>
+
+<p><tt>#include "carpal/PromiseFuturePair.h"</tt>
+
+<p>A <tt>carpal::PromiseFuturePair&lt;T&gt;</tt> is a channel by which a consumer can get one value that will be produced by a producer at some
+future time. Also, the consumer can find out when the producer ended its action.
+
+<p>Typically, a <tt>carpal::PromiseFuturePair&lt;T&gt;</tt> is created by an asynchronous operation and returns to the caller a pointer to it,
+wrapped inside a <a href="future.html"><tt>carpal::Future&lt;T&gt;</tt></a>. Later, when the asynchronous operation completes, it sets
+the value &mdash; of type <tt>T</tt> &mdash;
+into the <tt>carpal::PromiseFuturePair&lt;T&gt;</tt>, making it available to the caller / consumer.
+
+<p>For the consumer, there are three ways of finding out when to retrieve the value:<ul>
+  <li>polling, via <a href="promise-future-pair-base.html#isComplete"><tt>isComplete()</tt>
+  <li>waiting, blocking the current thread, via <a href="promise-future-pair-base.html#wait"><tt>wait()</tt></a>
+  <li>setting a callback to be run when the asynchronous operation completes, via
+    <a href="promise-future-pair-base.html#addSynchronousCallback"><tt>addSynchronousCallback()</tt></a>
+</ul>
+
+<p><tt>carpal::PromiseFuturePair&lt;T&gt;</tt> is designed so that data producers (asynchronous operations)
+can derive from it to add any information needed throughout the execution of that operation.
+
+<p>The base functionality of <tt>carpal::PromiseFuturePair&lt;T&gt;</tt> is implemented in its base class,
+<a href="promise-future-pair-base.html"><tt>carpal::PromiseFuturePairBase</tt></a>.
+
+<h2>Methods inherited from <a href="promise-future-pair-base.html"><tt>carpal::PromiseFuturePairBase</tt></a></h2>
+
+<p><a href="promise-future-pair-base.html#isComplete"><tt>bool isComplete() const noexcept</tt></a>
+<p><a href="promise-future-pair-base.html#isCompletedNormally"><tt>bool isCompletedNormally() const noexcept</tt></a>
+<p><a href="promise-future-pair-base.html#isException"><tt>bool isException() const noexcept</tt></a>
+<p><a href="promise-future-pair-base.html#wait"><tt>bool wait() const noexcept</tt></a>
+<p><a href="promise-future-pair-base.html#addSynchronousCallback"><tt>bool addSynchronousCallback() const noexcept</tt></a>
+
+<h2>Methods</h2>
+
+<h3 class="func-header"  id="get"><tt>T& get() const</tt><br><tt>void get() const</tt></h3>
+
+<p>Blocks the current thread until the underlying asynchronous operation completes. If it completes normally,
+then <tt>get()</tt> returns, by reference, a variable holding the value returned by the asynchronous operation.
+For the <tt>void</tt> specialization, <tt>get()</tt> returns <tt>void</tt>.<!-- TODO: add get() for void -->
+
+<p>The returned reference is valid for as long as the <tt>Future&lt;T&gt;</tt> for which it was called exists.
+
+<p>If the asynchronous operation completes by throwing an exception, <tt>get()</tt> re-throws that exception.
+
+<p>Multiple calls to <tt>get()</tt> are allowed, including multiple concurrent calls on different threads. All these calls
+return a reference to the same variable.
+
+<p><b>See also:</b> <a href="promise-future-pair-base.html#getException"><tt>getException()</tt></a>,
+<a href="promise-future-pair-base.html#isComplete"><tt>isComplete()</tt></a>,
+<a href="promise-future-pair-base.html#isCompletedNormally"><tt>isCompletedNormally()</tt></a>,
+<a href="promise-future-pair-base.html#isException"><tt>isException()</tt></a>
+
+<h3 class="func-header"  id="set"><tt>void set(T val)</tt><br><tt>void set()</tt></h3>
+
+<p>Sets the <tt>carpal::PromiseFuturePair</tt> completed normally, with the specified value (for the non-<tt>void</tt> variant).
+
+<p>Either <tt>set()</tt> or <tt>setException()</tt> must be called exactly once in the lifetime of the object.
+
+<p>Calling <tt>set()</tt> will call all the callbacks already added via
+<a href="promise-future-pair-base.html#addSynchronousCallback"><tt>bool addSynchronousCallback() const noexcept</tt></a>
+
+<p><b>See also:</b> <a href="promise-future-pair-base.html#setException"><tt>setException()</tt></a>
+
+<h3 class="func-header"  id="set"><tt>void setException(T val)</tt><br><tt>void setException(std::exception_ptr exception)</tt></h3>
+
+<p>Sets the <tt>carpal::PromiseFuturePair</tt> completed with the specified exception.
+
+<p>Either <tt>set()</tt> or <tt>setException()</tt> must be called exactly once in the lifetime of the object.
+
+<p>Calling <tt>setException()</tt> will call all the callbacks already added via
+<a href="promise-future-pair-base.html#addSynchronousCallback"><tt>bool addSynchronousCallback() const noexcept</tt></a>
+
+<p><b>See also:</b> <a href="promise-future-pair-base.html#set"><tt>set()</tt></a>
+
+<address>
+This is part of the documentation of <tt>carpal</tt> project.<br>
+Copyright Radu Lupsa 2023<br>
+Distributed under the Boost Software License, Version 1.0.<br>
+(See accompanying file LICENSE.txt or copy at  https://www.boost.org/LICENSE_1_0.txt )<br>
+</address>
+
+</body>
+</html>

@@ -55,19 +55,19 @@ public:
 
     /** @brief Returns true if the asynchronous computation completed normally (without throwing an exception). Does not wait.
      * @note a false result can be outdated by the time the caller can use the result.*/
-    bool isCompletedNormally() const {
+    bool isCompletedNormally() const noexcept {
         return m_state == State::completed_normally;
     }
 
     /** @brief Returns true if the asynchronous computation completed by throwing an exception. Does not wait.
      * @note a false result can be outdated by the time the caller can use the result.*/
-    bool isException() const {
+    bool isException() const noexcept {
         return m_state == State::exception;
     }
 
     /** @brief Waits until the asynchronous computation completes (if not completed yet), then returns the exception (if
      * the asynchronous computation throws) or nullptr (if it completes normally). */
-    std::exception_ptr getException() const {
+    std::exception_ptr getException() const noexcept {
         wait();
         return m_exception;
     }
@@ -113,7 +113,7 @@ public:
      * to make sure this is not used with multiple consumers. */
     T& get() {
         this->wait();
-        if(m_state == State::completed_normally) { 
+        if(m_state == State::completed_normally) {
             return m_val.value();
         } else {
             std::rethrow_exception(m_exception);
@@ -187,6 +187,14 @@ class PromiseFuturePair<void> : public PromiseFuturePairBase {
 public:
     using BaseType = void;
     using ConsumerFacingType = PromiseFuturePairBase;
+
+    /** @brief Waits (blocking the current thread) until the future completes.*/
+    void get() {
+        this->wait();
+        if(m_state == State::exception) {
+            std::rethrow_exception(m_exception);
+        }
+    }
 
     /** @brief Marks the asynchronous operation as completed normally.*/
     void set() {
@@ -484,8 +492,9 @@ or calls the given function on the exception. The function is synchronous and re
 template<typename T, typename Func>
 class ContinuationTaskCatchAll : public PromiseFuturePair<T> {
 public:
-    ContinuationTaskCatchAll(Func func, Future<T> future)
-        :m_func(std::move(func)),
+    ContinuationTaskCatchAll(Executor* pExecutor, Func func, Future<T> future)
+        :m_pExecutor(pExecutor),
+        m_func(std::move(func)),
         m_future(future)
     {
     }
@@ -495,12 +504,16 @@ public:
             this->setFromOtherFutureMove(m_future.getPromiseFuturePair());
             m_future.reset();
         } else {
-            this->computeAndSet(std::move(m_func), m_future.getException());
+            std::exception_ptr pException = m_future.getException();
             m_future.reset();
+            m_pExecutor->enqueue([this,pException](){
+                this->computeAndSet(std::move(m_func), pException);
+            });
         }
     }
 
 private:
+    Executor* m_pExecutor;
     Func m_func;
     Future<T> m_future;
 };
@@ -627,31 +640,31 @@ public:
     {}
 
     /** @brief Waits (blocking the current thread) until the underlying operation completes.*/
-    void wait() const {
+    void wait() const noexcept {
         return m_pFuture->wait();
     }
 
     /** @brief Returns true if already triggered. Does not wait.
      * @note the result can be outdated by the time the caller can use the result.*/
-    bool isComplete() const {
+    bool isComplete() const noexcept {
         return m_pFuture->isComplete();
     }
 
     /** @brief Returns true if the future is completed normally - that is, is completed and not with an exception
      * */
-    bool isCompletedNormally() const {
+    bool isCompletedNormally() const noexcept {
         return m_pFuture->isCompletedNormally();
     }
 
     /** @brief Returns true if the future is completed with exception
      * */
-    bool isException() const {
+    bool isException() const noexcept {
         return m_pFuture->isException();
     }
 
     /** @brief Waits for the future to complete; then, if completed with exception, returns the exception, otherwise returns nullptr
      * */
-    std::exception_ptr getException() const {
+    std::exception_ptr getException() const noexcept {
         return m_pFuture->getException();
     }
 
@@ -744,8 +757,30 @@ public:
     }
 
     template<typename Func>
+    Future<void> thenCatchAll(Executor* pExecutor, Func func) {
+        auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<void, Func> >(pExecutor, std::move(func), *this);
+        this->addSynchronousCallback([pRet](){pRet->onFutureCompleted();});
+        return Future<void>(pRet);
+    }
+
+    template<typename Func>
     Future<void> thenCatchAll(Func func) {
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<void, Func> >(std::move(func), *this);
+        auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<void, Func> >(defaultExecutor(), std::move(func), *this);
+        this->addSynchronousCallback([pRet](){pRet->onFutureCompleted();});
+        return Future<void>(pRet);
+    }
+
+    template<typename Ex, typename Func>
+    Future<void> thenCatch(Executor* pExecutor, Func func) {
+        auto generalHandler = [f=std::move(func)](std::exception_ptr pEx) -> void {
+            try {
+                std::rethrow_exception(pEx);
+            } catch(Ex& ex) {
+                f(ex);
+            }
+        };
+        auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<void, decltype(generalHandler)> >(
+            pExecutor, std::move(generalHandler), *this);
         this->addSynchronousCallback([pRet](){pRet->onFutureCompleted();});
         return Future<void>(pRet);
     }
@@ -760,7 +795,7 @@ public:
             }
         };
         auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<void, decltype(generalHandler)> >(
-            std::move(generalHandler), *this);
+            defaultExecutor(), std::move(generalHandler), *this);
         this->addSynchronousCallback([pRet](){pRet->onFutureCompleted();});
         return Future<void>(pRet);
     }
@@ -832,21 +867,21 @@ public:
     {}
 
     /** @brief Waits (blocking the current thread) until the underlying operation completes.*/
-    void wait() const {
+    void wait() const noexcept {
         return m_pFuture->wait();
     }
 
     /** @brief Returns true if already triggered. Does not wait.
      * @note the result can be outdated by the time the caller can use the result.*/
-    bool isComplete() const {
+    bool isComplete() const noexcept {
         return m_pFuture->isComplete();
     }
 
-    bool isCompletedNormally() const {
+    bool isCompletedNormally() const noexcept {
         return m_pFuture->isCompletedNormally();
     }
     
-    bool isException() const {
+    bool isException() const noexcept {
         return m_pFuture->isException();
     }
 
@@ -855,7 +890,7 @@ public:
         return m_pFuture->get();
     }
 
-    std::exception_ptr getException() const {
+    std::exception_ptr getException() const noexcept {
         return m_pFuture->getException();
     }
 
@@ -950,8 +985,30 @@ public:
     }
 
     template<typename Func>
+    Future<T> thenCatchAll(Executor* pExecutor, Func func) {
+        auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<T, Func> >(pExecutor, std::move(func), *this);
+        this->addSynchronousCallback([pRet](){pRet->onFutureCompleted();});
+        return Future<T>(pRet);
+    }
+
+    template<typename Func>
     Future<T> thenCatchAll(Func func) {
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<T, Func> >(std::move(func), *this);
+        auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<T, Func> >(defaultExecutor(), std::move(func), *this);
+        this->addSynchronousCallback([pRet](){pRet->onFutureCompleted();});
+        return Future<T>(pRet);
+    }
+
+    template<typename Ex, typename Func>
+    Future<T> thenCatch(Executor* pExecutor, Func func) {
+        auto generalHandler = [f=std::move(func)](std::exception_ptr pEx) -> T {
+            try {
+                std::rethrow_exception(pEx);
+            } catch(Ex& ex) {
+                return f(ex);
+            }
+        };
+        auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<T, decltype(generalHandler)> >(
+            pExecutor, std::move(generalHandler), *this);
         this->addSynchronousCallback([pRet](){pRet->onFutureCompleted();});
         return Future<T>(pRet);
     }
@@ -966,7 +1023,7 @@ public:
             }
         };
         auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<T, decltype(generalHandler)> >(
-            std::move(generalHandler), *this);
+            defaultExecutor(), std::move(generalHandler), *this);
         this->addSynchronousCallback([pRet](){pRet->onFutureCompleted();});
         return Future<T>(pRet);
     }

@@ -6,7 +6,6 @@ cmake_minimum_required(VERSION 2.18)
 project(carpal LANGUAGES CXX)
 
 option(BUILD_CARPAL_TESTS "Build tests" ON)
-option(BUILD_CARPAL_DOC "Create documentation" ON)
 option(ENABLE_COROUTINES "Enable coroutine based functionality" ON)
 
 if(ENABLE_COROUTINES)
@@ -39,23 +38,3 @@ if(BUILD_CARPAL_TESTS)
     target_link_libraries(carpal_test carpal Catch2::Catch2)
     set_property(TARGET carpal_test PROPERTY CXX_STANDARD ${CXX_STANDARD})
 endif(BUILD_CARPAL_TESTS)
-
-# Docs
-if(BUILD_CARPAL_DOC)
-    message("Configuring Doxygen")
-    find_package(Doxygen REQUIRED)
-    
-    # set input and output files
-    set(DOXYGEN_CONFIG_IN ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile.in)
-    set(DOXYGEN_CONFIG_OUT ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile)
-
-    # request to configure the file
-    configure_file(${DOXYGEN_CONFIG_IN} ${DOXYGEN_CONFIG_OUT} @ONLY)
-
-    # note the option ALL which allows to build the docs together with the application
-    add_custom_target( doc_doxygen ALL
-        COMMAND ${DOXYGEN_EXECUTABLE} ${DOXYGEN_CONFIG_OUT}
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-        COMMENT "Generating API documentation with Doxygen"
-        VERBATIM )
-endif(BUILD_CARPAL_DOC)

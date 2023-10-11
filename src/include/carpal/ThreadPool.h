@@ -17,10 +17,11 @@ namespace carpal {
 class ThreadPool : public Executor {
 public:
     explicit ThreadPool(unsigned nrThreads);
-    ~ThreadPool();
-    void enqueue(std::function<void()> func);
+    ~ThreadPool() override;
+    void enqueue(std::function<void()> func) override;
+
     void close();
-    
+
 private:
     void threadFunction();
 
@@ -28,7 +29,7 @@ private:
     std::condition_variable m_cv;
     std::deque<std::function<void()> > m_tasks;
     bool m_isClosed = false;
-    
+
     std::vector<std::thread> m_threads;
 };
 

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>carpal Promise</title>
+<link rel="stylesheet" href="carpal.css">
+</head>
+<body>
+
+<h1><tt>carpal::Promise&lt;T&gt;</tt></h1>
+
+<h2>Overview</h2>
+
+<p><tt>#include "carpal/Future.h"</tt>
+
+<p>A <tt>carpal::Promise&lt;T&gt;</tt> is a wrapper over a shared pointer to an object that represents the status and the result (when available)
+of an asynchronous operation. Unlike <a href="future.html"><tt>carpal::Future&lt;T&gt;</tt></a>, a <tt>carpal::Promise&lt;T&gt;</tt>
+exposes the methods of interest for the producer, i.e., the called asynchronous operation.
+
+<p><b>Example:</b><br>(note: there are way better ways to achieve the same result)
+
+<pre>
+#include "carpal/Future.h"
+#include &lt;thread&gt;
+carpal::Future&lt;int&gt; delayedAsyncAnswer() {
+    carpal::Promise&lt;int&gt; promise;
+    carpal::defaultExecutor()-&gt;enqueue([promise](){
+        std::this_thread.sleep(std::chrono::seconds(10));
+        promise.set(42);
+    });
+    return promise.future();
+}
+</pre>
+
+<h2>Constructors, destructors, assignment</h2>
+
+<h3 class="func-header" id="Promise::Promise"><tt>Promise()</tt></h3>
+
+Allocates a <a href="promise-future-pair.html"><tt>carpal::PromiseFuturePair&lt;T&gt;</tt></a> and sets the constructed
+<tt>carpal::Promise&lt;T&gt;</tt> object to point to it.
+
+<p><b>See also:</b> <a href="#Promise::future"><tt>future()</tt></a>
+
+<h2>Methods</h2>
+
+<h3 class="func-header" id="Promise::future"><tt>carpal::Future&lt;T&gt; future() const</tt></h3>
+
+<p>Returns a <a href="future.html"><tt>carpal::Future&lt;T&gt;</tt></a> pointing to the same
+<a href="promise-future-pair.html"><tt>carpal::PromiseFuturePair&lt;T&gt;</tt></a> object.
+
+<p>Any <a href="promise-future-pair.html#addSynchronousContinuation">synchronous continuation</a>
+already set on the future will execute on the current thread, before <tt>set()</tt> returns.
+
+<p><b>See also:</b> <a href="#Promise::Promise"><tt>Promise()</tt></a>
+
+<h3 class="func-header" id="Promise::set"><tt>void set(T val) const</tt><br><tt>void set() const</tt></h3>
+
+<p>Completes the future normally, by setting the specified value. For the <tt>void</tt> specialization, it just marks the future as being
+complete.
+
+<p>Any <a href="promise-future-pair.html#addSynchronousContinuation">synchronous continuation</a>
+already set on the future will execute on the current thread, before <tt>set()</tt> returns.
+
+<p><b>See also:</b> <a href="#Promise::setException"><tt>setException()</tt></a>
+
+<h3 class="func-header" id="Promise::setException">void setException(std::exception_ptr pException) const</tt></h3>
+
+<p>Completes the future with the exception passed as an argument.
+
+<p>Any <a href="promise-future-pair.html#addSynchronousContinuation">synchronous continuation</a>
+already set on the future will execute on the current thread, before <tt>set()</tt> returns.
+
+<p><b>See also:</b> <a href="#Promise::set"><tt>set()</tt></a>
+
+<address>
+This is part of the documentation of <tt>carpal</tt> project.<br>
+Copyright Radu Lupsa 2023<br>
+Distributed under the Boost Software License, Version 1.0.<br>
+(See accompanying file LICENSE.txt or copy at  https://www.boost.org/LICENSE_1_0.txt )<br>
+</address>
+
+</body>
+</html>

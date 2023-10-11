@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>carpal library</title>
+</head>
+<body>
+
+<h1><tt>carpal</tt> library</h1>
+
+<h2>Overview</h2>
+
+<p>Welcome to <b>C</b>++ <b>A</b>synchronous, <b>R</b>eactive, and <b>PA</b>rallel programming <b>L</b>ibrary (<b><tt>carpal</tt></b>).
+
+<p><tt>carpal</tt> is a library for easying writing <em>asynchronous</em> functions - functions that start an opearion in background,
+and immediately return control to the caller.
+At the time being, it supports <em>futures</em> with continuations and <tt>C++ 20</tt> <em>coroutines</em>. Support for asynchronous generators
+and reactive-style streams is comming soon.
+
+<h2><a href="future-overview.html">Futures with continuations</a></h2>
+
+<p>An asynchronous function may immediately return a <em>future</em> &mdash;
+an object that will receive the value when the asynchronous operation completes.
+
+<p>In addition to what the standard <tt>std::future&lt;T&gt;</tt> offers, our <a href="future.html"><tt>carpal::Future&lt;T&gt;</tt></a>
+allows enqueueing operations to be executed when the original operation completes and,
+furthermore, to compose such operations in a way similar to the basic blocks of the standard programming.
+In particular, we offer support for easily <a href="future.html#Future::thenAsyncLoop">looping</a>
+an asynchronous operation - something that is very tedious with other similar frameworks.
+
+<!-- TODO: example -->
+
+<h2>Coroutines</h2>
+
+<p><tt>C++ 20</tt> <em>coroutines</em> can also be used for implementing asynchronous functions. Our <em>asynchronous coroutines</em>
+return the control to the caller as soon as they in turn launch some asynchronous operation and thus reach a <em>suspension point</em>.
+At that time or later, the caller can run other coroutines, that are runnable at that time, until eventually the original coroutine completes.
+
+<p><em>Carpal coroutines</em> are designed to interface well with carpal futures.
+
+<p>All this is made transparent to the programmer &mdash; via <tt>co_await</tt> statements similar to other languages.
+
+<p>However, we also allow the programmer to have fine-grained control over, for instance, which thread(s) is/are allowed to execute code
+from a specific coroutine. This supports the use of some frameworks that insist that specific operations can only be called from specific threads.
+
+<h2>Support components</h2>
+
+<p>Additional components include:<dl>
+ <dt><tt>carpal::AlarmClock</tt></dt><dd> allows to set up operations to be executed at some given time;</dd>
+ <dt><tt>carpal::FutureWaiter</tt></dt><dd> allows to keep a bunch of <tt>Future&lt;T&gt;</tt>
+ objects produced continuosly during application execution,
+ so that they are not lost before completion and they can all be waited for when needed.</dd>
+</dl>
+
+<address>
+<hr>
+This is part of the documentation of <tt>carpal</tt> project.<br>
+Copyright Radu Lupsa 2023<br>
+Distributed under the Boost Software License, Version 1.0.<br>
+(See accompanying file LICENSE.txt or copy at  https://www.boost.org/LICENSE_1_0.txt )<br>
+</address>
+
+</body>
+</html>

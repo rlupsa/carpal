@@ -1,0 +1,17 @@
+
+body {
+  color: Black;
+  background-color: White;
+}
+
+h1 {
+  text-align: center;
+}
+
+.func-header {
+  background-color: Yellow;
+}
+
+address {
+  background-color: LightGray;
+}
