@@ -4,43 +4,38 @@
 
 #pragma once
 
+#include "carpal/Executor.h"
+
 #include <coroutine>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
 #include <queue>
 #include <unordered_set>
+#include <vector>
 
 namespace carpal {
 
 /** @brief Scheduler for coroutines
  * */
-class CoroutineScheduler {
+class CoroutineScheduler : public Executor {
+protected:
+    virtual ~CoroutineScheduler() {}
+
 public:
-    CoroutineScheduler();
-    ~CoroutineScheduler();
-
-    /** @brief Marks the specified coroutine handler runnable. This means it will be returned, at some later time, by a @c schedule() call
+    /** @brief To be called from the initial_suspend(). Returns true if the coroutine must switch to another thread, and false if it should continue on the current thread.
      * */
-    void markRunnable(std::coroutine_handle<void> h);
+    virtual bool initSwitchThread() const = 0;
 
-    /** @brief Marks the specified thread runnable. This means it will return, at some later time, by a @c schedule() call
+    /** @brief Marks the specified coroutine handler runnable. This function is to be called from callbacks set by an awaiter, when the awaited condition is ready
+     * Calling this function means the coroutine itself can be scheduled. However, depending on the scheduling policy,
+     * the coroutine will run as soon as there is an available thread, or when someone calls get() or some other such function.
      * */
-    void markThreadRunnable(std::thread::id tid);
-
-    /** @brief Returns a runnable coroutine (specified by a @c markRunnable() call), or @c nullptr if this thread is specified as runnable
-     * by a @c markRunnable() call.
-     * */
-    std::coroutine_handle<void> schedule();
-
-private:
-    std::mutex m_mtx;
-    std::condition_variable m_cv;
-    std::queue<std::coroutine_handle<void> > m_runnableHandlers;
-    std::unordered_set<std::thread::id> m_runnableThreads;
+    virtual void markRunnable(std::coroutine_handle<void> h) = 0;
 
 };
 
+/// @todo make this a static member of CoroutineScheduler?
 CoroutineScheduler* defaultCoroutineScheduler();
 
 } // namespace carpal

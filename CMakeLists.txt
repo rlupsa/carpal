@@ -35,8 +35,7 @@ set(CARPAL_HEADERS
   "src/include/carpal/ThreadPool.h"
   "src/include/carpal/Timer.h")
 if(ENABLE_COROUTINES)
-    list(APPEND CARPAL_SOURCES
-        "src/CoroutineScheduler.cpp")
+    #list(APPEND CARPAL_SOURCES)
     list(APPEND CARPAL_HEADERS
         "src/include/carpal/CoroutineScheduler.h"
         "src/include/carpal/AsyncCoroutine.h")

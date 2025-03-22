@@ -9,10 +9,23 @@
 namespace carpal {
 
 class Executor {
-public:
+protected:
     virtual ~Executor() {}
     
+public:
     virtual void enqueue(std::function<void()> func) = 0;
+
+    /** @brief Causes a waitFor() called with the same id to return.
+     * */
+    virtual void markCompleted(const void* id) = 0;
+
+    /** @brief Waits until the condition is ready. Depending on the scheduling policy, it may run other tasks.
+     * The condition ready is signaled by a markShouldReturn() call with the same id as the one passed here.
+     * */
+    virtual void waitFor(const void* id) = 0;
+
 };
+
+Executor* defaultExecutor();
 
 } // namespace carpal

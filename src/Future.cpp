@@ -6,11 +6,6 @@
 #include "carpal/ThreadPool.h"
 #include <thread>
 
-carpal::Executor* carpal::defaultExecutor() {
-    static ThreadPool threadPool(std::thread::hardware_concurrency() + 1);
-    return &threadPool;
-}
-
 carpal::PromiseFuturePairBase::~PromiseFuturePairBase() {
 }
 

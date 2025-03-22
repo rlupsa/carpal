@@ -33,7 +33,7 @@ carpal::AsyncCoroutine<int> coroFunc_future_sum(Future<int> f1, Future<int> f2) 
 };
 
 TEST_CASE("SimpleCoroutine_async_immediate_int", "[asyncCoroutine]") {
-    carpal::CoroutineScheduler scheduler;
+    carpal::ThreadPool scheduler(8);
 
     carpal::AsyncCoroutine<int> coro = coroFunc(&scheduler, 10);
     CHECK(coro.get() == 11);

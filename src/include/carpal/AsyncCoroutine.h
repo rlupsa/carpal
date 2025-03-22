@@ -212,19 +212,13 @@ namespace carpal {
                 return promise.m_val.value();
             }
         }
-        promise.addSynchronousCallback([tid=std::this_thread::get_id(),pScheduler=promise.m_pScheduler](){
-            pScheduler->markThreadRunnable(tid);
+        int dummy;
+        promise.addSynchronousCallback([&dummy,pScheduler=promise.m_pScheduler](){
+            pScheduler->markCompleted(&dummy);
         });
-        while(true) {
-            auto coroHandle = promise.m_pScheduler->schedule();
-            if(coroHandle != nullptr) {
-                coroHandle.resume();
-            } else if(promise.m_val.has_value()) {
-                return promise.m_val.value();
-            } else {
-                assert(false);
-            }
-        }
+        promise.m_pScheduler->waitFor(&dummy);
+        assert(promise.m_val.has_value());
+        return promise.m_val.value();
     }
 
 } // namespace carpal
