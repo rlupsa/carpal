@@ -28,13 +28,20 @@ set_property(TARGET carpal PROPERTY CXX_STANDARD ${CXX_STANDARD})
 # Tests
 if(BUILD_CARPAL_TESTS)
     message("Configuring tests")
-    find_package(Catch2 REQUIRED)
+
+    Include(FetchContent)
+    FetchContent_Declare(
+      Catch2
+      GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+      GIT_TAG        v3.4.0 # or a later release
+    )
+    FetchContent_MakeAvailable(Catch2)
 
     set(CARPAL_TEST_SOURCES "tests/Test.cpp" "tests/TestHelper.h" "tests/TestFutures.cpp" "tests/TestTimer.cpp")
     if(ENABLE_COROUTINES)
         list(APPEND CARPAL_TEST_SOURCES "tests/TestAsyncCoroutine.cpp")
     endif(ENABLE_COROUTINES)
     add_executable(carpal_test ${CARPAL_TEST_SOURCES})
-    target_link_libraries(carpal_test carpal Catch2::Catch2)
+    target_link_libraries(carpal_test carpal Catch2::Catch2WithMain)
     set_property(TARGET carpal_test PROPERTY CXX_STANDARD ${CXX_STANDARD})
 endif(BUILD_CARPAL_TESTS)
