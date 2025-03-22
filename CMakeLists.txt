@@ -70,7 +70,8 @@ if(BUILD_CARPAL_TESTS)
         "tests/TestTimer.cpp")
     if(ENABLE_COROUTINES)
         list(APPEND CARPAL_TEST_SOURCES
-            "tests/TestAsyncCoroutine.cpp")
+            "tests/TestAsyncCoroutine.cpp"
+            "tests/TestCustomAwaiter.cpp")
     endif(ENABLE_COROUTINES)
     add_executable(carpal_test ${CARPAL_TEST_SOURCES})
     target_link_libraries(carpal_test carpal Catch2::Catch2WithMain)
