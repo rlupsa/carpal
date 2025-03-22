@@ -15,6 +15,12 @@ else()
 set(CXX_STANDARD 17)
 endif()
 
+if(BUILD_CARPAL_TESTS)
+set(CMAKE_BUILD_TYPE Debug)
+else()
+set(CMAKE_BUILD_TYPE RelWithDebInfo)
+endif()
+
 # Library
 configure_file("src/config.h.in" "include/carpal/config.h")
 set(CARPAL_SOURCES
