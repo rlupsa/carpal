@@ -1,0 +1,4 @@
+#pragma once
+
+#cmakedefine ENABLE_COROUTINES
+#cmakedefine CARPAL_ENABLE_LOGGING

@@ -6,7 +6,7 @@
 #include "carpal/Timer.h"
 #include "carpal/ThreadPool.h"
 
-#include <catch2/catch.hpp>
+#include <catch2/catch_test_macros.hpp>
 #include <stdio.h>
 
 #include "TestHelper.h"
