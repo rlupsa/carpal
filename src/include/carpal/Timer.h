@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "Future.h"
+#include "carpal/Future.h"
 
 #include <chrono>
 #include <set>
@@ -18,28 +18,20 @@ class AlarmClock;
 
 namespace carpal_private {
 
-class TimerFutureObject;    
+class BaseTimer;
+class TimerFutureObject;
 
 } // namespace carpal_private
 
 class Timer {
 public:
-    Timer(std::shared_ptr<carpal_private::TimerFutureObject> pFuture)
-        :m_pFuture(pFuture)
-        {}
+    Timer(IntrusiveSharedPtr<carpal_private::TimerFutureObject> pFuture);
+    ~Timer();
     Future<bool> getFuture();
     void cancel();
 
 private:
-    std::shared_ptr<carpal_private::TimerFutureObject> m_pFuture;
-};
-
-template<typename T>
-class TimedAction {
-public:
-    Future<T> getFuture() const;
-    operator Future<T>() const;
-    void cancel();
+    IntrusiveSharedPtr<carpal_private::TimerFutureObject> m_pFuture;
 };
 
 /** @brief An object that can be used for scheduling one-shot or periodic actions
@@ -61,14 +53,18 @@ public:
     void cancelTimer(std::shared_ptr<carpal_private::TimerFutureObject> pTimerObject);
 
 private:
-    static bool compareTimers(std::shared_ptr<carpal_private::TimerFutureObject> const& p,
-        std::shared_ptr<carpal_private::TimerFutureObject> const& q);
+    friend class Timer;
+    friend class carpal_private::TimerFutureObject;
+
+    void cancelTimerObject(carpal_private::BaseTimer* pTimerObject);
+    void addTimerObject(carpal_private::BaseTimer* pTimerObject);
+    bool removeTimerObject(carpal_private::BaseTimer* pTimerObject);
+    static bool compareTimers(carpal_private::BaseTimer* p, carpal_private::BaseTimer* q);
     void threadFunction();
 
     std::mutex m_mtx;
     std::condition_variable m_cond;
-    std::set<std::shared_ptr<carpal_private::TimerFutureObject>, decltype(&AlarmClock::compareTimers)> m_timers;
-    std::shared_ptr<carpal_private::TimerFutureObject> m_nextTimer;
+    std::set<carpal_private::BaseTimer*, decltype(&AlarmClock::compareTimers)> m_timers;
     bool m_closed = false;
     std::thread m_thread;
 };

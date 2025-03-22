@@ -2,8 +2,8 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE.txt or copy at  https://www.boost.org/LICENSE_1_0.txt )
 
-#include "carpal/AsyncCoroutine.h"
 #include "carpal/Future.h"
+#include "carpal/Logger.h"
 #include "carpal/ThreadPool.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -13,42 +13,90 @@
 
 using namespace carpal;
 
-carpal::AsyncCoroutine<int> coroFunc(carpal::CoroutineScheduler*, int const& v) {
+carpal::Future<int> coroFunc(carpal::CoroutineScheduler*, int const& v) {
     co_return v + 1;
 };
 
-carpal::AsyncCoroutine<int> coroFunc_future(carpal::CoroutineScheduler*, Future<int> f) {
+carpal::Future<int> coroFuncDeferred(carpal::CoroutineScheduler*, int const& v) {
+    co_await SwitchThread();
+    co_return v + 1;
+};
+
+carpal::Future<int> coroFunc_future(carpal::CoroutineScheduler*, Future<int> f) {
     int ret = (co_await f) + 1;
     co_return ret;
 };
 
-carpal::AsyncCoroutine<int> coroFunc_future(Future<int> f) {
+carpal::Future<int> coroFunc_future(Future<int> f) {
     int ret = (co_await f) + 1;
     co_return ret;
 };
 
-carpal::AsyncCoroutine<int> coroFunc_future_sum(Future<int> f1, Future<int> f2) {
+carpal::Future<int> coroFunc_future_sum(Future<int> f1, Future<int> f2) {
     int ret = (co_await f1) + (co_await f2);
     co_return ret;
 };
 
-TEST_CASE("SimpleCoroutine_async_immediate_int", "[asyncCoroutine]") {
-    carpal::ThreadPool scheduler(8);
+carpal::Future<int> coroFunc_call(Future<int> f) {
+    auto coro = coroFunc_future(f);
+    int ret = (co_await coroFunc_future(f)) + (co_await coro);
+    co_return ret;
+};
 
-    carpal::AsyncCoroutine<int> coro = coroFunc(&scheduler, 10);
+carpal::Future<void> coroFunc_wait(Future<int> f1, Future<void> f2) {
+    co_await f1;
+    co_await f2;
+}
+
+TEST_CASE("SimpleCoroutine_async_immediate_int", "[asyncCoroutine]") {
+    carpal::ThreadPool scheduler(2);
+
+    carpal::Future<int> coro = coroFunc(&scheduler, 10);
     CHECK(coro.get() == 11);
 }
 
 TEST_CASE("SimpleCoroutine_Future_int_completed", "[asyncCoroutine]") {
     Future<int> f = completedFuture(20);
-    auto coroFunc = [f]() -> AsyncCoroutine<int> {
+    auto coroFunc = [f]() -> Future<int> {
         co_return co_await(f) + 1;
     };
     auto coro = coroFunc();
     CHECK(coro.get() == 21);
 }
 
-TEST_CASE("SimpleCoroutine_Future_int_not_completed", "[asyncCoroutine]") {
+TEST_CASE("SimpleCoroutine_Future_int_not_completed_lazy", "[asyncCoroutine]") {
+    Promise<int> p;
+    Future<int> f = p.future();
+    auto id = std::this_thread::get_id();
+    auto coroFunc = [f,id]() -> Future<int> {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        CHECK(id == std::this_thread::get_id());
+        CHECK(!f.isComplete());
+        co_return co_await(f) + 1;
+    };
+    auto coro = coroFunc();
+    p.set(20);
+    CHECK(coro.get() == 21);
+}
+
+TEST_CASE("SimpleCoroutine_Future_int_not_completed_deferred", "[asyncCoroutine]") {
+    Promise<int> p;
+    Future<int> f = p.future();
+    auto id = std::this_thread::get_id();
+    auto coroFunc = [f,id]() -> Future<int> {
+        co_await SwitchThread();
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        CHECK(id != std::this_thread::get_id());
+        CHECK(f.isComplete());
+        co_return co_await(f) + 1;
+    };
+    auto coro = coroFunc();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    p.set(20);
+    CHECK(coro.get() == 21);
+}
+
+TEST_CASE("SimpleCoroutine_Future_int_not_completed2", "[asyncCoroutine]") {
     Promise<int> p;
     Future<int> f = p.future();
     auto f1 = executeLaterVoid([p](){
@@ -61,7 +109,7 @@ TEST_CASE("SimpleCoroutine_Future_int_not_completed", "[asyncCoroutine]") {
 TEST_CASE("SimpleCoroutine_layers", "[asyncCoroutine]") {
     Promise<int> p;
     Future<int> f = p.future();
-    auto coroFunc = [](Future<int> f) -> AsyncCoroutine<int> {
+    auto coroFunc = [](Future<int> f) -> Future<int> {
         co_return co_await(f);
     };
     auto f1 = executeLaterVoid([p](){p.set(20);}, 300);
@@ -75,7 +123,7 @@ TEST_CASE("SimpleCoroutine_layers_multiple", "[asyncCoroutine]") {
     Future<int> f1 = p1.future();
     Promise<int> p2;
     Future<int> f2 = p2.future();
-    auto coroFunc = [](Future<int> f1, Future<int> f2) -> AsyncCoroutine<int> {
+    auto coroFunc = [](Future<int> f1, Future<int> f2) -> Future<int> {
         co_return co_await(f1) + co_await(f2);
     };
     auto fx1 = executeLaterVoid([p1](){p1.set(20);});
@@ -127,4 +175,22 @@ TEST_CASE("SimpleCoroutine_layers_multithread2", "[asyncCoroutine]") {
         CHECK(coro1.get() == 23);
         child.join();
     }
+}
+
+TEST_CASE("SimpleCoroutine_layer1", "[asyncCoroutine]") {
+    auto coro = coroFunc_call(completeLater(10, 20));
+    CHECK(coro.get() == 22);
+}
+
+TEST_CASE("SimpleCoroutine_wait", "[asyncCoroutine]") {
+    Promise<int> p1;
+    Promise<int> p2;
+    Future<void> coro1 = coroFunc_wait(p1.future(), p2.future());
+    CHECK(!coro1.isComplete());
+    p1.set(42);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    CHECK(!coro1.isComplete());
+    p2.set(5);
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    CHECK(coro1.isComplete());
 }

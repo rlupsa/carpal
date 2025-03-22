@@ -15,10 +15,10 @@ using namespace carpal;
 
 TEST_CASE("Simple_alarm", "[timer]") {
     std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
-    Timer timer = alarmClock()->setTimer(now + std::chrono::milliseconds(50));
+    Timer timer = alarmClock()->setTimer(now + std::chrono::milliseconds(100));
     
     CHECK(!timer.getFuture().isComplete());
-    delay(60);
+    delay(150);
     CHECK(timer.getFuture().isComplete());
     CHECK(timer.getFuture().get());
 }
@@ -30,6 +30,14 @@ TEST_CASE("Simple_alarm2", "[timer]") {
     CHECK(!timer.getFuture().isComplete());
     CHECK(timer.getFuture().get());
     CHECK(std::chrono::system_clock::now() >= now + std::chrono::milliseconds(50));
+}
+
+TEST_CASE("Alarm_past", "[timer]") {
+    std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
+    Timer timer = alarmClock()->setTimer(now);
+    delay(10);
+    CHECK(timer.getFuture().isComplete());
+    CHECK(timer.getFuture().get());
 }
 
 TEST_CASE("Alarm_cancel", "[timer]") {

@@ -4,639 +4,48 @@
 
 #pragma once
 
+#include "carpal/config.h"
+#include "carpal/Logger.h"
+
+#ifdef ENABLE_COROUTINES
+#include "carpal/CoroutineScheduler.h"
+#endif
+#include "carpal/PromiseFuturePair.h"
+#include "carpal/FutureHelpers.h"
+#include "carpal/Executor.h"
+
 #include <functional>
+#include <list>
 #include <memory>
 #include <optional>
-#include <mutex>
-#include <condition_variable>
-#include <atomic>
-#include <list>
 #include <type_traits>
 #include <variant>
 #include <vector>
 
-#include "Executor.h"
-
 namespace carpal {
-
-Executor* defaultExecutor();
-
-template<typename T>
-class Future;
-
-/** @brief Base class for @see PromiseFuturePair, that signals the completion of an asynchronous process.
-*/
-class PromiseFuturePairBase {
-public:
-    using CallbackType = std::function<void()>;
-
-    /** @brief The possible current state of an asynchronous computation
-     * */
-    enum class State : uint8_t {
-        not_completed, ///< @brief Not completed (yet)
-        completed_normally, ///< @brief Completed normally (no exception)
-        exception ///< @brief Completed with an exception
-    };
-
-    virtual ~PromiseFuturePairBase();
-
-    /** @brief Waits (blocking the current thread) until the asynchronous computation completes.*/
-    void wait() const noexcept {
-        if(m_state != State::not_completed) return;
-        std::unique_lock<std::mutex> lck(m_mtx);
-        while(m_state == State::not_completed) m_cv.wait(lck);
-    }
-
-    /** @brief Returns true if already completed. Does not wait.
-     * @note a false result can be outdated by the time the caller can use the result.*/
-    bool isComplete() const noexcept {
-        return m_state != State::not_completed;
-    }
-
-    /** @brief Returns true if the asynchronous computation completed normally (without throwing an exception). Does not wait.
-     * @note a false result can be outdated by the time the caller can use the result.*/
-    bool isCompletedNormally() const noexcept {
-        return m_state == State::completed_normally;
-    }
-
-    /** @brief Returns true if the asynchronous computation completed by throwing an exception. Does not wait.
-     * @note a false result can be outdated by the time the caller can use the result.*/
-    bool isException() const noexcept {
-        return m_state == State::exception;
-    }
-
-    /** @brief Waits until the asynchronous computation completes (if not completed yet), then returns the exception (if
-     * the asynchronous computation throws) or nullptr (if it completes normally). */
-    std::exception_ptr getException() const noexcept {
-        wait();
-        return m_exception;
-    }
-
-    /** @brief Adds a callback that will get called when the event is triggered.
-    *
-    * If the event is already triggered, the callback will be called immediately on the current thread, before this
-    * function returns. If the event is not triggered yet, then the callback will be called on the thread
-    * calling @see notify().
-    *
-    * @note The caller must make sure that the function remains valid (no dangling pointers) until it gets
-    * executed.
-    */
-    void addSynchronousCallback(CallbackType callback);
-
-protected:
-    /** @brief Marks the computation complete. Must be called exactly once.*/
-    void notify(State state);
-
-protected:
-    mutable std::mutex m_mtx;
-    mutable std::condition_variable m_cv;
-    std::atomic<State> m_state{State::not_completed};
-    std::exception_ptr m_exception = nullptr;
-    CallbackType m_continuations = nullptr;
-};
-
-/** @brief A channel by which a consumer can get a value that will be produced by a producer at some
-* future time.
-*
-* @note There is a specialization for @c void because one cannot handle a @c void value. Producers of @c void will have pointers to
-* @c PromiseFuturePair<void>, while consumers will have pointers to @c PromiseFuturePairBase because consumers of @c void can use values of
-* any type. However, general conversion are not allowed - it is not possible for a consumer of @c long, to use a @c PromiseFuturePair<int>.
-*/
-template<typename T>
-class PromiseFuturePair : public PromiseFuturePairBase {
-public:
-    using BaseType = T;
-    using ConsumerFacingType = PromiseFuturePair<T>;
-
-    /** @brief Waits (blocking the current thread) until the value is available, then returns the value.
-     * @note The value is returned by non-const reference, allowing the consumer to move it away. It is user's responsibility
-     * to make sure this is not used with multiple consumers. */
-    T& get() {
-        this->wait();
-        if(m_state == State::completed_normally) {
-            return m_val.value();
-        } else {
-            std::rethrow_exception(m_exception);
-        }
-    }
-
-    /** @brief Sets the value into the channel. Must be called exactly once.*/
-    void set(T val) {
-        m_val = std::optional<T>(std::move(val));
-        this->notify(State::completed_normally);
-    }
-
-    /** @brief Executes the given function and sets the result as the value of the future. If the function ends in exception,
-     * it sets the exception into the future.
-     * @param func The function to be executed. Must return a type convertible to @c T
-     * @param args The arguments to be passed (forwarded) to the function
-     *
-     * @note This function is provided to simplify generic code that also works with @c PromiseFuturePair<void>
-     */
-    template<typename Func, typename... Args>
-    void computeAndSet(Func&& func, Args&&... args) noexcept {
-        try {
-            this->set(std::forward<Func>(func)(std::forward<Args>(args)...));
-        } catch(...) {
-            this->setException(std::current_exception());
-        }
-    }
-
-    /** @brief Sets the value by moving it from the specified future.
-     * 
-     * @note This function is provided to simplify generic code that also works with @c PromiseFuturePair<void>
-     * */
-    void setFromOtherFutureMove(std::shared_ptr<PromiseFuturePair<T> > pF) {
-        if(pF->isCompletedNormally()) {
-            this->set(std::move(pF->get()));
-        } else {
-            this->setException(pF->getException());
-        }
-    }
-
-    /** @brief Executes the function and sets the result as the value of the future.
-     * @param func The function to be executed. Must return a type convertible to @c T
-     * @param args A tuple whose components shall be passed (forwarded) to the function as independent arguments
-     *
-     * @note This function is provided to simplify generic code that also works with @c PromiseFuturePair<void>
-     */
-    template<typename Func, typename... Args>
-    void computeAndSetWithTuple(Func func, std::tuple<Args...> args) noexcept {
-        try {
-            this->set(std::apply(std::move(func), std::move(args)));
-        } catch(...) {
-            this->setException(std::current_exception());
-        }
-    }
-
-    /** @brief Completes the future with the specified exception.
-     * */
-    void setException(std::exception_ptr exception) {
-        m_exception = exception;
-        notify(State::exception);
-    }
-
-private:
-    std::optional<T> m_val;
-};
-
-/** @brief @c PromiseFuturePair specialization for void
- * */
-template<>
-class PromiseFuturePair<void> : public PromiseFuturePairBase {
-public:
-    using BaseType = void;
-    using ConsumerFacingType = PromiseFuturePairBase;
-
-    /** @brief Waits (blocking the current thread) until the future completes.*/
-    void get() {
-        this->wait();
-        if(m_state == State::exception) {
-            std::rethrow_exception(m_exception);
-        }
-    }
-
-    /** @brief Marks the asynchronous operation as completed normally.*/
-    void set() {
-        this->notify(State::completed_normally);
-    }
-
-    /** Executes the specified function with the specified arguments (forwarded), then sets the future as being completed
-     * (normally, if the function completes normally, or with the exception thrown by the function).
-     * 
-     * @note This function is provided to simplify writing generic code.
-     * */
-    template<typename Func, typename... Args>
-    void computeAndSet(Func&& func, Args&&... args) noexcept {
-        try {
-            std::forward<Func>(func)(std::forward<Args>(args)...);
-            this->notify(State::completed_normally);
-        } catch(...) {
-            this->setException(std::current_exception());
-        }
-    }
-
-    /** @brief If the given future is completed normally, sets the this future as completed normally; otherwise, sets the this future
-     * as completed with the same exception as the one given as an argument.
-     * 
-     * @note This function is provided to simplify writing generic code.
-     * */
-    void setFromOtherFutureMove(std::shared_ptr<PromiseFuturePairBase> pF) {
-        if(pF->isCompletedNormally()) {
-            this->notify(State::completed_normally);
-        } else {
-            this->setException(pF->getException());
-        }
-    }
-
-    /** @brief Executes the function and sets the result as the value of the future.
-     * @param func The function to be executed. Must return a type convertible to @c T
-     * @param args A tuple whose components shall be passed (forwarded) to the function as independent arguments
-     *
-     * @note This function is provided to simplify writing generic code.
-     */
-    template<typename Func, typename... Args>
-    void computeAndSetWithTuple(Func func, std::tuple<Args...> args) noexcept {
-        std::apply(std::move(func), std::move(args));
-        this->notify(State::completed_normally);
-    }
-
-    /** @brief Completes the future with the specified exception.
-     * */
-    void setException(std::exception_ptr exception) {
-        m_exception = exception;
-        notify(State::exception);
-    }
-
-};
-
-namespace carpal_private {
-
-/** @brief [Internal use] A task that is ready to start executing (does not depend on other futures) */
-template<typename R, typename Func>
-class ReadyTask : public PromiseFuturePair<R> {
-public:
-    explicit ReadyTask(Func func)
-        : m_func(std::move(func))
-    {}
-    void execute() noexcept {
-        this->computeAndSet(std::move(m_func));
-    }
-private:
-    Func m_func;
-};
-
-/** @brief [Internal use] A task that depends on a single future to start executing (can start as soon as that future completes) */
-template<typename R, typename Func, typename T>
-class ContinuationTaskFromOneFuture : public PromiseFuturePair<R> {
-public:
-    ContinuationTaskFromOneFuture(Executor* pExecutor, Func func, Future<T> future)
-        :m_pExecutor(pExecutor),
-        m_func(std::move(func)),
-        m_future(future)
-    {
-    }
-
-    static void onFutureCompleted(std::shared_ptr<ContinuationTaskFromOneFuture> pThis) {
-        if(pThis->m_future.isCompletedNormally()) {
-            pThis->m_pExecutor->enqueue([pThis]() noexcept {
-                pThis->computeAndSet(std::move(pThis->m_func), pThis->m_future.get());
-                pThis->m_future.reset();
-            });
-        } else {
-            pThis->setException(pThis->m_future.getException());
-            pThis->m_future.reset();
-        }
-    }
-
-private:
-    Executor* m_pExecutor;
-    Func m_func;
-    Future<T> m_future;
-};
-
-/** @brief [Internal use] A task that depends on a single void future to start executing (can start as soon as that future completes) */
-template<typename R, typename Func>
-class ContinuationTaskFromOneVoidFuture : public PromiseFuturePair<R> {
-public:
-    ContinuationTaskFromOneVoidFuture(Executor* pExecutor, Func func, std::shared_ptr<PromiseFuturePairBase > pFuture)
-        :m_pExecutor(pExecutor),
-        m_func(std::move(func)),
-        m_pFuture(pFuture)
-    {
-    }
-
-    static void onFutureCompleted(std::shared_ptr<ContinuationTaskFromOneVoidFuture> pThis) {
-        if(pThis->m_pFuture->isCompletedNormally()) {
-            pThis->m_pExecutor->enqueue([pThis]() noexcept {
-                pThis->computeAndSet(std::move(pThis->m_func));
-                pThis->m_pFuture.reset();
-            });
-        } else {
-            pThis->setException(pThis->m_pFuture->getException());
-            pThis->m_pFuture.reset();
-        }
-    }
-
-private:
-    Executor* m_pExecutor;
-    Func m_func;
-    std::shared_ptr<PromiseFuturePairBase> m_pFuture;
-};
-
-/** @brief [Internal use] A task that depends on a single future to start executing (can start as soon as that future completes),
-will take the value via const reference, and executes an asynchronous operation returning a future. */
-template<typename Func, typename T>
-class ContinuationAsyncTaskFromOneFuture : public PromiseFuturePair<typename std::invoke_result<Func,T>::type::BaseType> {
-public:
-    using ReturnFuture = typename std::invoke_result<Func,T>::type;
-    using ReturnType = typename ReturnFuture::BaseType;
-    ContinuationAsyncTaskFromOneFuture(Executor* pExecutor, Func func, std::shared_ptr<PromiseFuturePair<T> > pFuture)
-        :m_pExecutor(pExecutor),
-        m_func(std::move(func)),
-        m_pAntecessorFuture(pFuture)
-    {
-    }
-
-    static void onFutureCompleted(std::shared_ptr<ContinuationAsyncTaskFromOneFuture<Func, T> > pThis) {
-        if(pThis->m_pAntecessorFuture->isCompletedNormally()) {
-            pThis->m_pExecutor->enqueue([pThis]() noexcept {
-                pThis->m_pAsyncOpFuture = pThis->m_func(pThis->m_pAntecessorFuture->get()).getPromiseFuturePair();
-                pThis->m_pAsyncOpFuture->addSynchronousCallback([pThis](){
-                    ContinuationAsyncTaskFromOneFuture<Func, T>::onInnerFutureCompleted(pThis);
-                });
-                pThis->m_pAntecessorFuture.reset();
-            });
-        } else {
-            pThis->setException(pThis->m_pAntecessorFuture->getException());
-            pThis->m_pAntecessorFuture.reset();
-        }
-    }
-
-private:
-    static void onInnerFutureCompleted(std::shared_ptr<ContinuationAsyncTaskFromOneFuture<Func, T> > pThis) {
-        if(pThis->m_pAsyncOpFuture->isCompletedNormally()) {
-            pThis->m_pExecutor->enqueue([pThis]() noexcept {
-                pThis->setFromOtherFutureMove(pThis->m_pAsyncOpFuture);
-                pThis->m_pAsyncOpFuture.reset();
-            });
-        } else {
-            pThis->setException(pThis->m_pAsyncOpFuture->getException());
-            pThis->m_pAsyncOpFuture.reset();
-        }
-    }
-
-    Executor* m_pExecutor;
-    Func m_func;
-    std::shared_ptr<PromiseFuturePair<T> > m_pAntecessorFuture;
-    std::shared_ptr<typename PromiseFuturePair<ReturnType>::ConsumerFacingType> m_pAsyncOpFuture;
-};
-
-/** @brief [Internal use] A task that depends on a single future to start executing (can start as soon as that future completes),
-will take the value via const reference, and executes an asynchronous operation returning a future. */
-template<typename Func>
-class ContinuationAsyncTaskFromOneVoidFuture : public PromiseFuturePair<typename std::invoke_result<Func>::type::BaseType> {
-public:
-    using ReturnFuture = typename std::invoke_result<Func>::type;
-    using ReturnType = typename ReturnFuture::BaseType;
-    ContinuationAsyncTaskFromOneVoidFuture(Executor* pExecutor, Func func, std::shared_ptr<PromiseFuturePairBase> pFuture)
-        :m_pExecutor(pExecutor),
-        m_func(std::move(func)),
-        m_pAntecessorFuture(pFuture)
-    {
-    }
-
-    static void onFutureCompleted(std::shared_ptr<ContinuationAsyncTaskFromOneVoidFuture<Func> > pThis) {
-        if(pThis->m_pAntecessorFuture->isCompletedNormally()) {
-            pThis->m_pExecutor->enqueue([pThis]() noexcept {
-                pThis->m_pAsyncOpFuture = pThis->m_func().getPromiseFuturePair();
-                pThis->m_pAsyncOpFuture->addSynchronousCallback([pThis](){
-                    ContinuationAsyncTaskFromOneVoidFuture<Func>::onInnerFutureCompleted(pThis);
-                });
-                pThis->m_pAntecessorFuture.reset();
-            });
-        } else {
-            pThis->setException(pThis->m_pAntecessorFuture->getException());
-            pThis->m_pAntecessorFuture.reset();
-        }
-    }
-
-private:
-    static void onInnerFutureCompleted(std::shared_ptr<ContinuationAsyncTaskFromOneVoidFuture<Func> > pThis) {
-        if(pThis->m_pAsyncOpFuture->isCompletedNormally()) {
-            pThis->m_pExecutor->enqueue([pThis]() noexcept {
-                pThis->setFromOtherFutureMove(pThis->m_pAsyncOpFuture);
-                pThis->m_pAsyncOpFuture.reset();
-            });
-        } else {
-            pThis->setException(pThis->m_pAsyncOpFuture->getException());
-            pThis->m_pAsyncOpFuture.reset();
-        }
-    }
-
-    Executor* m_pExecutor;
-    Func m_func;
-    std::shared_ptr<PromiseFuturePairBase> m_pAntecessorFuture;
-    std::shared_ptr<typename PromiseFuturePair<ReturnType>::ConsumerFacingType> m_pAsyncOpFuture;
-};
-
-/** @brief [Internal use] A task that executes an asynchronous loop body for as long as a looping condition is true, and completes afterwards */
-template<typename T, typename FuncCond, typename FuncBody>
-class ContinuationTaskAsyncLoop : public PromiseFuturePair<T> {
-public:
-    ContinuationTaskAsyncLoop(Executor* pExecutor, FuncCond cond, FuncBody body, Future<T> future)
-        :m_pExecutor(pExecutor),
-        m_cond(std::move(cond)),
-        m_body(std::move(body)),
-        m_currentFuture(future)
-    {
-    }
-
-    static void onFutureCompleted(std::shared_ptr<ContinuationTaskAsyncLoop<T, FuncCond, FuncBody> > pThis) {
-        if(pThis->m_currentFuture.isCompletedNormally()) {
-            if(pThis->m_cond(pThis->m_currentFuture.get())) {
-                pThis->m_currentFuture = pThis->m_body(pThis->m_currentFuture.get());
-                pThis->m_currentFuture.addSynchronousCallback([pThis](){ContinuationTaskAsyncLoop<T, FuncCond, FuncBody>::onFutureCompleted(pThis);});
-            } else {
-                pThis->setFromOtherFutureMove(pThis->m_currentFuture.getPromiseFuturePair());
-                pThis->m_currentFuture.reset();
-            }
-        } else {
-            pThis->setException(pThis->m_currentFuture.getException());
-            pThis->m_currentFuture.reset();
-        }
-    }
-
-private:
-    Executor* m_pExecutor;
-    FuncCond m_cond;
-    FuncBody m_body;
-    Future<T> m_currentFuture;
-};
-
-template<typename T, typename FuncCond, typename FuncBody> // T must be void, but we leave it as template parameter to delay its instantiation
-class ContinuationTaskAsyncLoopVoid : public PromiseFuturePair<T> {
-public:
-    ContinuationTaskAsyncLoopVoid(Executor* pExecutor, FuncCond cond, FuncBody body, Future<T> future)
-        :m_pExecutor(pExecutor),
-        m_cond(std::move(cond)),
-        m_body(std::move(body)),
-        m_currentFuture(future)
-    {
-    }
-
-    static void onFutureCompleted(std::shared_ptr<ContinuationTaskAsyncLoopVoid<T, FuncCond, FuncBody> > pThis) {
-        if(pThis->m_currentFuture.isCompletedNormally()) {
-            if(pThis->m_cond()) {
-                pThis->m_currentFuture = pThis->m_body();
-                pThis->m_currentFuture.addSynchronousCallback([pThis](){ContinuationTaskAsyncLoopVoid<T, FuncCond, FuncBody>::onFutureCompleted(pThis);});
-            } else {
-                pThis->setFromOtherFutureMove(pThis->m_currentFuture.getPromiseFuturePair());
-                pThis->m_currentFuture.reset();
-            }
-        } else {
-            pThis->setException(pThis->m_currentFuture.getException());
-            pThis->m_currentFuture.reset();
-        }
-    }
-
-private:
-    Executor* m_pExecutor;
-    FuncCond m_cond;
-    FuncBody m_body;
-    Future<T> m_currentFuture;
-};
-
-/** @brief [Internal use] A task that, when the given future completes, completes moving its value on normal completion,
-or calls the given function on the exception. The function is synchronous and returns a @c T.*/
-template<typename T, typename Func>
-class ContinuationTaskCatchAll : public PromiseFuturePair<T> {
-public:
-    ContinuationTaskCatchAll(Executor* pExecutor, Func func, Future<T> future)
-        :m_pExecutor(pExecutor),
-        m_func(std::move(func)),
-        m_future(future)
-    {
-    }
-
-    void onFutureCompleted() {
-        if(m_future.isCompletedNormally()) {
-            this->setFromOtherFutureMove(m_future.getPromiseFuturePair());
-            m_future.reset();
-        } else {
-            std::exception_ptr pException = m_future.getException();
-            m_future.reset();
-            m_pExecutor->enqueue([this,pException](){
-                this->computeAndSet(std::move(m_func), pException);
-            });
-        }
-    }
-
-private:
-    Executor* m_pExecutor;
-    Func m_func;
-    Future<T> m_future;
-};
-
-/** @brief [Internal use] A task that, when the given future completes, completes moving its value on normal completion,
-or calls the given function on the exception. The function is asynchronous and returns a @c Future<T>*/
-template<typename T, typename Func>
-class ContinuationTaskAsyncCatchAll : public PromiseFuturePair<T> {
-public:
-    ContinuationTaskAsyncCatchAll(Executor* pExecutor, Func func, Future<T> future)
-        :m_pExecutor(pExecutor),
-        m_func(std::move(func)),
-        m_antecessorFuture(future),
-        m_exceptionHandlerFuture(nullptr)
-    {
-    }
-
-    static void onFutureCompleted(std::shared_ptr<ContinuationTaskAsyncCatchAll<T, Func> > pThis) {
-        if(pThis->m_antecessorFuture.isCompletedNormally()) {
-            pThis->setFromOtherFutureMove(pThis->m_antecessorFuture.getPromiseFuturePair());
-            pThis->m_antecessorFuture.reset();
-        } else {
-            pThis->m_exceptionHandlerFuture = pThis->m_func(pThis->m_antecessorFuture.getException());
-            pThis->m_antecessorFuture.reset();
-            pThis->m_exceptionHandlerFuture.addSynchronousCallback([pThis](){pThis->onExceptionHandlerComplete();});
-        }
-    }
-
-private:
-    void onExceptionHandlerComplete() {
-        this->setFromOtherFutureMove(m_exceptionHandlerFuture.getPromiseFuturePair());
-        m_exceptionHandlerFuture.reset();
-    }
-
-    Executor* m_pExecutor;
-    Func m_func;
-    Future<T> m_antecessorFuture;
-    Future<T> m_exceptionHandlerFuture;
-};
-
-template<typename R, typename Func, typename... FutureArgs>
-class ContinuationTask : public PromiseFuturePair<R> {
-public:
-    explicit ContinuationTask(Executor* pTp, Func func, FutureArgs... futures)
-        :m_pTp(pTp),
-        m_remaining(sizeof...(futures)),
-        m_func(std::move(func)),
-        m_futures(std::move(futures)...)
-    {
-    }
-
-    static void onFutureCompleted(std::shared_ptr<ContinuationTask<R, Func, FutureArgs...> > pThis) {
-        unsigned old = pThis->m_remaining.fetch_sub(1);
-        if (old == 1) {
-            pThis->m_pTp->enqueue([pThis]() noexcept {
-                pThis->computeAndSetWithTuple(std::move(pThis->m_func), std::move(pThis->m_futures));
-            });
-        }
-    }
-
-    Executor* m_pTp;
-    std::atomic_uint m_remaining;
-    Func m_func;
-    std::tuple<FutureArgs...> m_futures;
-};
-
-template<typename R, typename Func, typename Arg>
-class ContinuationTaskArray : public PromiseFuturePair<R> {
-public:
-    explicit ContinuationTaskArray(Executor* pTp, Func func, std::vector<Future<Arg> > futures)
-        :m_pTp(pTp),
-        m_remaining(futures.size()),
-        m_func(std::move(func)),
-        m_futures(std::move(futures))
-    {
-        // empty
-    }
-
-    static void attachContinuations(std::shared_ptr<ContinuationTaskArray<R, Func, Arg> > pThis) {
-        for (auto& future : pThis->m_futures) {
-            future.addSynchronousCallback([pThis]() {ContinuationTaskArray<R, Func, Arg>::onFutureCompleted(pThis); });
-        }
-    }
-
-    static void onFutureCompleted(std::shared_ptr<ContinuationTaskArray<R, Func, Arg> > pThis) {
-        unsigned old = pThis->m_remaining.fetch_sub(1);
-        if (old == 1) {
-            pThis->m_pTp->enqueue([pThis]() noexcept {
-                pThis->computeAndSet(std::move(pThis->m_func), std::move(pThis->m_futures));
-            });
-        }
-    }
-
-    Executor* m_pTp;
-    std::atomic_uint m_remaining;
-    Func m_func;
-    std::vector<Future<Arg> > m_futures;
-};
-
-template<unsigned k, typename R, typename Func, typename... FutureArgs>
-void attachContinuations(std::shared_ptr<carpal_private::ContinuationTask<R, Func, FutureArgs...> > pTask) {
-    std::get<k-1>(pTask->m_futures).addSynchronousCallback([pTask]() {
-        carpal_private::ContinuationTask<R, Func, FutureArgs...>::onFutureCompleted(pTask);
-    });
-    if(k>1) {
-        attachContinuations<(k>1 ? k-1 : 1)>(pTask);
-    }
-}
-
-} // namespace carpal_private
 
 template<typename T>
 Future<T> exceptionFuture(std::exception_ptr ex);
 
-/** @brief The consumer facing side of the promise-future pair.
+/** @brief A reference exposing the consumer facing side of the promise-future pair.
  * */
 template<>
 class Future<void> {
 public:
     using BaseType = void;
+#ifdef ENABLE_COROUTINES
+    class promise_type;
+#endif
 
-    explicit Future(std::shared_ptr<PromiseFuturePairBase> pf)
-        :m_pFuture(std::move(pf))
+    explicit Future(std::nullptr_t)
+        :m_pFuture(nullptr)
+    {}
+
+    /** @brief Takes over a heap allocated PromiseFuturePair.
+     * */
+    template<class S>
+    explicit Future(IntrusiveSharedPtr<S> pf)
+        :m_pFuture(pf)
     {}
 
     /** @brief Waits (blocking the current thread) until the underlying operation completes.*/
@@ -668,6 +77,14 @@ public:
         return m_pFuture->getException();
     }
 
+    /** @brief Waits (blocking the current thread) until completed, then returns or throws.*/
+    void get() const {
+        m_pFuture->wait();
+        if(m_pFuture->isException()) {
+            std::rethrow_exception(m_pFuture->getException());
+        }
+    }
+
     /** @brief Sets the given function to be executed when the future completes.
      * 
      * If the future is already completed, the callback executes immediately on the current thread;
@@ -678,7 +95,7 @@ public:
         m_pFuture->addSynchronousCallback(std::move(func));
     }
 
-    std::shared_ptr<PromiseFuturePairBase> getPromiseFuturePair() const {
+    IntrusiveSharedPtr<PromiseFuturePairBase> getPromiseFuturePair() const {
         return m_pFuture;
     }
 
@@ -689,9 +106,9 @@ public:
     Future<typename std::invoke_result<Func>::type>
     then(Executor* pExecutor, Func func) {
         using R = typename std::invoke_result<Func>::type;
-        std::shared_ptr<carpal_private::ContinuationTaskFromOneVoidFuture<R, Func> > pRet
-            = std::make_shared<carpal_private::ContinuationTaskFromOneVoidFuture<R, Func> >(
-            pExecutor, std::move(func), this->getPromiseFuturePair());
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskFromOneVoidFuture<R, Func> > pRet(
+            new carpal_private::ContinuationTaskFromOneVoidFuture<R, Func>(
+                pExecutor, std::move(func), this->getPromiseFuturePair()));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationTaskFromOneVoidFuture<R, Func>::onFutureCompleted(pRet);});
         return Future<R>(pRet);
     }
@@ -703,9 +120,9 @@ public:
     Future<typename std::invoke_result<Func>::type>
     then(Func func) {
         using R = typename std::invoke_result<Func>::type;
-        std::shared_ptr<carpal_private::ContinuationTaskFromOneVoidFuture<R, Func> > pRet
-            = std::make_shared<carpal_private::ContinuationTaskFromOneVoidFuture<R, Func> >(
-            defaultExecutor(), std::move(func), this->getPromiseFuturePair());
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskFromOneVoidFuture<R, Func> > pRet(
+            new carpal_private::ContinuationTaskFromOneVoidFuture<R, Func>(
+                defaultExecutor(), std::move(func), this->getPromiseFuturePair()));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationTaskFromOneVoidFuture<R, Func>::onFutureCompleted(pRet);});
         return Future<R>(pRet);
     }
@@ -717,9 +134,9 @@ public:
     Future<typename std::invoke_result<Func>::type::BaseType>
     thenAsync(Executor* pExecutor, Func func) {
         using R = typename std::invoke_result<Func>::type::BaseType;
-        std::shared_ptr<carpal_private::ContinuationAsyncTaskFromOneVoidFuture<Func> > pRet
-            = std::make_shared<carpal_private::ContinuationAsyncTaskFromOneVoidFuture<Func> >(
-            pExecutor, std::move(func), this->getPromiseFuturePair());
+        IntrusiveSharedPtr<carpal_private::ContinuationAsyncTaskFromOneVoidFuture<Func> > pRet(
+            new carpal_private::ContinuationAsyncTaskFromOneVoidFuture<Func>(
+                pExecutor, std::move(func), this->getPromiseFuturePair()));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationAsyncTaskFromOneVoidFuture<Func>::onFutureCompleted(pRet);});
         return Future<R>(pRet);
     }
@@ -731,9 +148,9 @@ public:
     Future<typename std::invoke_result<Func>::type::BaseType>
     thenAsync(Func func) {
         using R = typename std::invoke_result<Func>::type::BaseType;
-        std::shared_ptr<carpal_private::ContinuationAsyncTaskFromOneVoidFuture<Func> > pRet
-            = std::make_shared<carpal_private::ContinuationAsyncTaskFromOneVoidFuture<Func> >(
-            defaultExecutor(), std::move(func), this->getPromiseFuturePair());
+        IntrusiveSharedPtr<carpal_private::ContinuationAsyncTaskFromOneVoidFuture<Func> > pRet(
+            new carpal_private::ContinuationAsyncTaskFromOneVoidFuture<Func>(
+                defaultExecutor(), std::move(func), this->getPromiseFuturePair()));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationAsyncTaskFromOneVoidFuture<Func>::onFutureCompleted(pRet);});
         return Future<R>(pRet);
     }
@@ -741,8 +158,9 @@ public:
     template<typename FuncCond, typename FuncBody>
     Future<void>
     thenAsyncLoop(Executor* pExecutor, FuncCond cond, FuncBody body) {
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskAsyncLoopVoid<void, FuncCond, FuncBody> >(
-            pExecutor, std::move(cond), std::move(body), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskAsyncLoopVoid<void, FuncCond, FuncBody> > pRet(
+            new carpal_private::ContinuationTaskAsyncLoopVoid<void, FuncCond, FuncBody>(
+                pExecutor, std::move(cond), std::move(body), *this));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationTaskAsyncLoopVoid<void, FuncCond, FuncBody>::onFutureCompleted(pRet);});
         return Future<void>(pRet);
     }
@@ -750,22 +168,25 @@ public:
     template<typename FuncCond, typename FuncBody>
     Future<void>
     thenAsyncLoop(FuncCond cond, FuncBody body) {
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskAsyncLoopVoid<void, FuncCond, FuncBody> >(
-            defaultExecutor(), std::move(cond), std::move(body), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskAsyncLoopVoid<void, FuncCond, FuncBody> > pRet(
+            new carpal_private::ContinuationTaskAsyncLoopVoid<void, FuncCond, FuncBody>(
+                defaultExecutor(), std::move(cond), std::move(body), *this));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationTaskAsyncLoopVoid<void, FuncCond, FuncBody>::onFutureCompleted(pRet);});
         return Future<void>(pRet);
     }
 
     template<typename Func>
     Future<void> thenCatchAll(Executor* pExecutor, Func func) {
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<void, Func> >(pExecutor, std::move(func), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskCatchAll<void, Func> > pRet(
+            new carpal_private::ContinuationTaskCatchAll<void, Func>(pExecutor, std::move(func), *this));
         this->addSynchronousCallback([pRet](){pRet->onFutureCompleted();});
         return Future<void>(pRet);
     }
 
     template<typename Func>
     Future<void> thenCatchAll(Func func) {
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<void, Func> >(defaultExecutor(), std::move(func), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskCatchAll<void, Func> > pRet(
+            new carpal_private::ContinuationTaskCatchAll<void, Func> >(defaultExecutor(), std::move(func), *this));
         this->addSynchronousCallback([pRet](){pRet->onFutureCompleted();});
         return Future<void>(pRet);
     }
@@ -779,8 +200,9 @@ public:
                 f(ex);
             }
         };
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<void, decltype(generalHandler)> >(
-            pExecutor, std::move(generalHandler), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskCatchAll<void, decltype(generalHandler)> > pRet(
+            new carpal_private::ContinuationTaskCatchAll<void, decltype(generalHandler)>(
+                pExecutor, std::move(generalHandler), *this));
         this->addSynchronousCallback([pRet](){pRet->onFutureCompleted();});
         return Future<void>(pRet);
     }
@@ -794,22 +216,25 @@ public:
                 f(ex);
             }
         };
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<void, decltype(generalHandler)> >(
-            defaultExecutor(), std::move(generalHandler), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskCatchAll<void, decltype(generalHandler)> > pRet(
+            new carpal_private::ContinuationTaskCatchAll<void, decltype(generalHandler)>(
+                defaultExecutor(), std::move(generalHandler), *this));
         this->addSynchronousCallback([pRet](){pRet->onFutureCompleted();});
         return Future<void>(pRet);
     }
 
     template<typename Func>
     Future<void> thenCatchAllAsync(Executor* pExecutor, Func func) {
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskAsyncCatchAll<void, Func> >(pExecutor, std::move(func), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskAsyncCatchAll<void, Func> > pRet(
+            new carpal_private::ContinuationTaskAsyncCatchAll<void, Func>(pExecutor, std::move(func), *this));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationTaskAsyncCatchAll<void, Func>::onFutureCompleted(pRet);});
         return Future<void>(pRet);
     }
 
     template<typename Func>
     Future<void> thenCatchAllAsync(Func func) {
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskAsyncCatchAll<void, Func> >(defaultExecutor(), std::move(func), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskAsyncCatchAll<void, Func> > pRet(
+            new carpal_private::ContinuationTaskAsyncCatchAll<void, Func> >(defaultExecutor(), std::move(func), *this));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationTaskAsyncCatchAll<void, Func>::onFutureCompleted(pRet);});
         return Future<void>(pRet);
     }
@@ -825,8 +250,8 @@ public:
                 return exceptionFuture<void>(std::current_exception());
             }
         };
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskAsyncCatchAll<void, decltype(generalHandler)> >(pExecutor,
-            std::move(generalHandler), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskAsyncCatchAll<void, decltype(generalHandler)> > pRet(
+            new carpal_private::ContinuationTaskAsyncCatchAll<void, decltype(generalHandler)>(pExecutor, std::move(generalHandler), *this));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationTaskAsyncCatchAll<void, decltype(generalHandler)>::onFutureCompleted(pRet);});
         return Future<void>(pRet);
     }
@@ -842,8 +267,8 @@ public:
                 return exceptionFuture<void>(std::current_exception());
             }
         };
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskAsyncCatchAll<void, decltype(generalHandler)> >(defaultExecutor(),
-            std::move(generalHandler), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskAsyncCatchAll<void, decltype(generalHandler)> > pRet(
+            new carpal_private::ContinuationTaskAsyncCatchAll<void, decltype(generalHandler)>(defaultExecutor(), std::move(generalHandler), *this));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationTaskAsyncCatchAll<void, decltype(generalHandler)>::onFutureCompleted(pRet);});
         return Future<void>(pRet);
     }
@@ -854,16 +279,26 @@ public:
     }
 
 private:
-    std::shared_ptr<PromiseFuturePairBase> m_pFuture;
+    IntrusiveSharedPtr<PromiseFuturePairBase> m_pFuture;
 };
 
 template<typename T>
 class Future {
 public:
     using BaseType = T;
+#ifdef ENABLE_COROUTINES
+    class promise_type;
+#endif
 
-    explicit Future(std::shared_ptr<PromiseFuturePair<T> > pf)
-        :m_pFuture(std::move(pf))
+    explicit Future(std::nullptr_t)
+        :m_pFuture(nullptr)
+    {}
+
+    /** @brief Takes over a heap allocated PromiseFuturePair
+     * */
+    template<class S>
+    explicit Future(IntrusiveSharedPtr<S> pf)
+        :m_pFuture(pf)
     {}
 
     /** @brief Waits (blocking the current thread) until the underlying operation completes.*/
@@ -903,7 +338,7 @@ public:
         return Future<void>(m_pFuture);
     }
 
-    std::shared_ptr<PromiseFuturePair<T> > getPromiseFuturePair() const {
+    IntrusiveSharedPtr<PromiseFuturePair<T> > getPromiseFuturePair() const {
         return m_pFuture;
     }
 
@@ -917,8 +352,8 @@ public:
     Future<typename std::invoke_result<Func, T>::type>
     then(Executor* pExecutor, Func func) {
         using R = typename std::invoke_result<Func, T>::type;
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskFromOneFuture<R, Func, T> >(
-            pExecutor, std::move(func), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskFromOneFuture<R, Func, T> > pRet(new carpal_private::ContinuationTaskFromOneFuture<R, Func, T>(
+            pExecutor, std::move(func), *this));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationTaskFromOneFuture<R, Func, T>::onFutureCompleted(pRet);});
         return Future<R>(pRet);
     }
@@ -927,8 +362,8 @@ public:
     Future<typename std::invoke_result<Func, T>::type>
     then(Func func) {
         using R = typename std::invoke_result<Func, T>::type;
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskFromOneFuture<R, Func, T> >(
-            defaultExecutor(), std::move(func), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskFromOneFuture<R, Func, T> > pRet(new carpal_private::ContinuationTaskFromOneFuture<R, Func, T>(
+            defaultExecutor(), std::move(func), *this));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationTaskFromOneFuture<R, Func, T>::onFutureCompleted(pRet);});
         return Future<R>(pRet);
     }
@@ -937,8 +372,8 @@ public:
     Future<typename std::invoke_result<Func, T>::type::BaseType>
     thenAsync(Executor* pExecutor, Func func) {
         using R = typename std::invoke_result<Func, T>::type::BaseType;
-        auto pRet = std::make_shared<carpal_private::ContinuationAsyncTaskFromOneFuture<Func, T> >(
-            pExecutor, std::move(func), this->getPromiseFuturePair());
+        IntrusiveSharedPtr<carpal_private::ContinuationAsyncTaskFromOneFuture<Func, T> > pRet(new carpal_private::ContinuationAsyncTaskFromOneFuture<Func, T>(
+            pExecutor, std::move(func), this->getPromiseFuturePair()));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationAsyncTaskFromOneFuture<Func, T>::onFutureCompleted(pRet);});
         return Future<R>(pRet);
     }
@@ -947,8 +382,8 @@ public:
     Future<typename std::invoke_result<Func, T>::type::BaseType>
     thenAsync(Func func) {
         using R = typename std::invoke_result<Func, T>::type::BaseType;
-        auto pRet = std::make_shared<carpal_private::ContinuationAsyncTaskFromOneFuture<Func, T> >(
-            defaultExecutor(), std::move(func), this->getPromiseFuturePair());
+        IntrusiveSharedPtr<carpal_private::ContinuationAsyncTaskFromOneFuture<Func, T> > pRet(new carpal_private::ContinuationAsyncTaskFromOneFuture<Func, T>(
+            defaultExecutor(), std::move(func), this->getPromiseFuturePair()));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationAsyncTaskFromOneFuture<Func, T>::onFutureCompleted(pRet);});
         return Future<R>(pRet);
     }
@@ -969,8 +404,8 @@ public:
     template<typename FuncCond, typename FuncBody>
     Future<T>
     thenAsyncLoop(Executor* pExecutor, FuncCond cond, FuncBody body) {
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskAsyncLoop<T, FuncCond, FuncBody> >(
-            pExecutor, std::move(cond), std::move(body), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskAsyncLoop<T, FuncCond, FuncBody> > pRet(new carpal_private::ContinuationTaskAsyncLoop<T, FuncCond, FuncBody>(
+            pExecutor, std::move(cond), std::move(body), *this));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationTaskAsyncLoop<T, FuncCond, FuncBody>::onFutureCompleted(pRet);});
         return Future<T>(pRet);
     }
@@ -978,22 +413,22 @@ public:
     template<typename FuncCond, typename FuncBody>
     Future<T>
     thenAsyncLoop(FuncCond cond, FuncBody body) {
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskAsyncLoop<T, FuncCond, FuncBody> >(
-            defaultExecutor(), std::move(cond), std::move(body), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskAsyncLoop<T, FuncCond, FuncBody> > pRet(new carpal_private::ContinuationTaskAsyncLoop<T, FuncCond, FuncBody>(
+            defaultExecutor(), std::move(cond), std::move(body), *this));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationTaskAsyncLoop<T, FuncCond, FuncBody>::onFutureCompleted(pRet);});
         return Future<T>(pRet);
     }
 
     template<typename Func>
     Future<T> thenCatchAll(Executor* pExecutor, Func func) {
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<T, Func> >(pExecutor, std::move(func), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskCatchAll<T, Func> > pRet(new carpal_private::ContinuationTaskCatchAll<T, Func>(pExecutor, std::move(func), *this));
         this->addSynchronousCallback([pRet](){pRet->onFutureCompleted();});
         return Future<T>(pRet);
     }
 
     template<typename Func>
     Future<T> thenCatchAll(Func func) {
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<T, Func> >(defaultExecutor(), std::move(func), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskCatchAll<T, Func> > pRet(new carpal_private::ContinuationTaskCatchAll<T, Func>(defaultExecutor(), std::move(func), *this));
         this->addSynchronousCallback([pRet](){pRet->onFutureCompleted();});
         return Future<T>(pRet);
     }
@@ -1007,8 +442,8 @@ public:
                 return f(ex);
             }
         };
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<T, decltype(generalHandler)> >(
-            pExecutor, std::move(generalHandler), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskCatchAll<T, decltype(generalHandler)> > pRet(new carpal_private::ContinuationTaskCatchAll<T, decltype(generalHandler)>(
+            pExecutor, std::move(generalHandler), *this));
         this->addSynchronousCallback([pRet](){pRet->onFutureCompleted();});
         return Future<T>(pRet);
     }
@@ -1022,22 +457,22 @@ public:
                 return f(ex);
             }
         };
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskCatchAll<T, decltype(generalHandler)> >(
-            defaultExecutor(), std::move(generalHandler), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskCatchAll<T, decltype(generalHandler)> > pRet(new carpal_private::ContinuationTaskCatchAll<T, decltype(generalHandler)>(
+            defaultExecutor(), std::move(generalHandler), *this));
         this->addSynchronousCallback([pRet](){pRet->onFutureCompleted();});
         return Future<T>(pRet);
     }
 
     template<typename Func>
     Future<T> thenCatchAllAsync(Executor* pExecutor, Func func) {
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskAsyncCatchAll<T, Func> >(pExecutor, std::move(func), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskAsyncCatchAll<T, Func> > pRet(new carpal_private::ContinuationTaskAsyncCatchAll<T, Func>(pExecutor, std::move(func), *this));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationTaskAsyncCatchAll<T, Func>::onFutureCompleted(pRet);});
         return Future<T>(pRet);
     }
 
     template<typename Func>
     Future<T> thenCatchAllAsync(Func func) {
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskAsyncCatchAll<T, Func> >(defaultExecutor(), std::move(func), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskAsyncCatchAll<T, Func> > pRet(new carpal_private::ContinuationTaskAsyncCatchAll<T, Func>(defaultExecutor(), std::move(func), *this));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationTaskAsyncCatchAll<T, Func>::onFutureCompleted(pRet);});
         return Future<T>(pRet);
     }
@@ -1053,8 +488,8 @@ public:
                 return exceptionFuture<T>(std::current_exception());
             }
         };
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskAsyncCatchAll<T, decltype(generalHandler)> >(pExecutor,
-            std::move(generalHandler), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskAsyncCatchAll<T, decltype(generalHandler)> > pRet(new carpal_private::ContinuationTaskAsyncCatchAll<T, decltype(generalHandler)>(pExecutor,
+            std::move(generalHandler), *this));
         this->addSynchronousCallback([pRet](){
             carpal_private::ContinuationTaskAsyncCatchAll<T, decltype(generalHandler)>::onFutureCompleted(pRet);
         });
@@ -1072,22 +507,24 @@ public:
                 return exceptionFuture<T>(std::current_exception());
             }
         };
-        auto pRet = std::make_shared<carpal_private::ContinuationTaskAsyncCatchAll<T, decltype(generalHandler)> >(defaultExecutor(),
-            std::move(generalHandler), *this);
+        IntrusiveSharedPtr<carpal_private::ContinuationTaskAsyncCatchAll<T, decltype(generalHandler)> > pRet(new carpal_private::ContinuationTaskAsyncCatchAll<T, decltype(generalHandler)>(defaultExecutor(),
+            std::move(generalHandler), *this));
         this->addSynchronousCallback([pRet](){carpal_private::ContinuationTaskAsyncCatchAll<T, decltype(generalHandler)>::onFutureCompleted(pRet);});
         return Future<T>(pRet);
     }
 
 private:
-    std::shared_ptr<PromiseFuturePair<T> > m_pFuture;
+    IntrusiveSharedPtr<PromiseFuturePair<T> > m_pFuture;
 };
 
-/** @brief The promise side of a promise-future pair */
+/** @brief A reference to the promise side of a promise-future pair */
 template<typename T>
 class Promise {
 public:
     /** @brief Creates the promise-future pair */
-    Promise() :m_pf(std::make_shared<PromiseFuturePair<T> >()) {}
+    Promise()
+        :m_pf(new PromiseFuturePair<T>)
+    {}
 
     /** @brief Sets the value into the promise-future pair. Makes the Future side complete.
     *    This function must be called exactly once in the lifetime of the Promise!*/
@@ -1105,14 +542,15 @@ public:
         return Future<T>(m_pf);
     }
 private:
-    std::shared_ptr<PromiseFuturePair<T> > m_pf;
+    IntrusiveSharedPtr<PromiseFuturePair<T> > m_pf;
 };
 
 template<>
 class Promise<void> {
 public:
     /** @brief Creates the promise-future pair */
-    Promise() :m_pf(std::make_shared<PromiseFuturePair<void> >()) {}
+    Promise() :m_pf(new PromiseFuturePair<void>)
+    {}
 
     /** @brief Makes the Future side complete.
     *    This function must be called exactly once in the lifetime of the Promise!*/
@@ -1130,7 +568,7 @@ public:
         return Future<void>(m_pf);
     }
 private:
-    std::shared_ptr<PromiseFuturePair<void> > m_pf;
+    IntrusiveSharedPtr<PromiseFuturePair<void> > m_pf;
 };
 
 /**
@@ -1144,7 +582,7 @@ template<typename Func>
 Future<typename std::invoke_result<Func>::type>
 runAsync(Executor* tp, Func func) {
     using R = typename std::invoke_result<Func>::type;
-    std::shared_ptr<carpal_private::ReadyTask<R, Func> > pf = std::make_shared<carpal_private::ReadyTask<R, Func> >(std::move(func));
+    IntrusiveSharedPtr<carpal_private::ReadyTask<R, Func> > pf(new carpal_private::ReadyTask<R, Func>(std::move(func)));
     tp->enqueue([pf](){pf->execute();});
     return Future<R>(pf);
 }
@@ -1172,7 +610,7 @@ namespace carpal_private {
  * @param ret
  */
 template<typename R, typename LoopFunc, typename PredicateFunc>
-void auxLoop(Executor* pExecutor, PredicateFunc loopingPredicate, LoopFunc loopFunc, R const& start, std::shared_ptr<PromiseFuturePair<R> > ret)
+void auxLoop(Executor* pExecutor, PredicateFunc loopingPredicate, LoopFunc loopFunc, R const& start, IntrusiveSharedPtr<PromiseFuturePair<R> > ret)
 {
     if(!loopingPredicate(start)) {
         ret->set(start);
@@ -1212,9 +650,9 @@ Future<typename std::invoke_result<Func, T&...>::type>
 whenAll(Executor* pTp, Func func, Future<T>... futures) {
     using R = typename std::invoke_result<Func, T&...>::type;
     auto fwdFunc = [func](Future<T>... ff) -> R {return func(ff.get()...);};
-    std::shared_ptr<carpal_private::ContinuationTask<R, decltype(fwdFunc), Future<T>...> > pRet
-        = std::make_shared<carpal_private::ContinuationTask<R, decltype(fwdFunc), Future<T>...> >(
-        pTp, fwdFunc, futures...);
+    IntrusiveSharedPtr<carpal_private::ContinuationTask<R, decltype(fwdFunc), Future<T>...> > pRet(
+        new carpal_private::ContinuationTask<R, decltype(fwdFunc), Future<T>...>(
+        pTp, fwdFunc, futures...));
     carpal_private::attachContinuations<sizeof...(T)>(pRet);
     return Future<R>(pRet);
 }
@@ -1234,9 +672,9 @@ Future<typename std::invoke_result<Func, T&...>::type>
 whenAll(Func func, Future<T>... futures) {
     using R = typename std::invoke_result<Func, T&...>::type;
     auto fwdFunc = [func](Future<T>... ff) -> R {return func(ff.get()...);};
-    std::shared_ptr<carpal_private::ContinuationTask<R, decltype(fwdFunc), Future<T>...> > pRet
-        = std::make_shared<carpal_private::ContinuationTask<R, decltype(fwdFunc), Future<T>...> >(
-        defaultExecutor(), fwdFunc, futures...);
+    IntrusiveSharedPtr<carpal_private::ContinuationTask<R, decltype(fwdFunc), Future<T>...> > pRet(
+        new carpal_private::ContinuationTask<R, decltype(fwdFunc), Future<T>...>(
+        defaultExecutor(), fwdFunc, futures...));
     carpal_private::attachContinuations<sizeof...(T)>(pRet);
     return Future<R>(pRet);
 }
@@ -1255,8 +693,8 @@ template<typename Func, typename... T>
 Future<typename std::invoke_result<Func, Future<T>...>::type>
 whenAllFromFutures(Executor* pTp, Func func, Future<T>... futures) {
     using R = typename std::invoke_result<Func, Future<T>...>::type;
-    std::shared_ptr<carpal_private::ContinuationTask<R, Func, Future<T>...> > pRet
-        = std::make_shared<carpal_private::ContinuationTask<R, Func, Future<T>...> >(pTp, func, futures...);
+    IntrusiveSharedPtr<carpal_private::ContinuationTask<R, Func, Future<T>...> > pRet(
+        new carpal_private::ContinuationTask<R, Func, Future<T>...>(pTp, func, futures...));
     carpal_private::attachContinuations<sizeof...(T)>(pRet);
     return Future<R>(pRet);
 }
@@ -1275,8 +713,8 @@ template<typename Func, typename... T>
 Future<typename std::invoke_result<Func, Future<T>...>::type>
 whenAllFromFutures(Func func, Future<T>... futures) {
     using R = typename std::invoke_result<Func, Future<T>...>::type;
-    std::shared_ptr<carpal_private::ContinuationTask<R, Func, Future<T>...> > pRet
-        = std::make_shared<carpal_private::ContinuationTask<R, Func, Future<T>...> >(defaultExecutor(), func, futures...);
+    IntrusiveSharedPtr<carpal_private::ContinuationTask<R, Func, Future<T>...> > pRet(
+        new carpal_private::ContinuationTask<R, Func, Future<T>...>(defaultExecutor(), func, futures...));
     carpal_private::attachContinuations<sizeof...(T)>(pRet);
     return Future<R>(pRet);
 }
@@ -1285,8 +723,8 @@ template<typename Func, typename T>
 Future<typename std::invoke_result<Func, std::vector<Future<T> > >::type>
 whenAllFromArrayOfFutures(Executor* pTp, Func func, std::vector<Future<T> > futures) {
     using R = typename std::invoke_result<Func, std::vector<Future<T> > >::type;
-    std::shared_ptr<carpal_private::ContinuationTaskArray<R, Func, T> > pRet
-        = std::make_shared<carpal_private::ContinuationTaskArray<R, Func, T> >(pTp, std::move(func), std::move(futures));
+    IntrusiveSharedPtr<carpal_private::ContinuationTaskArray<R, Func, T> > pRet(
+        new carpal_private::ContinuationTaskArray<R, Func, T>(pTp, std::move(func), std::move(futures)));
     carpal_private::ContinuationTaskArray<R, Func, T>::attachContinuations(pRet);
     return Future<R>(pRet);
 }
@@ -1295,8 +733,8 @@ template<typename Func, typename T>
 Future<typename std::invoke_result<Func, std::vector<Future<T> > >::type>
 whenAllFromArrayOfFutures(Func func, std::vector<Future<T> > futures) {
     using R = typename std::invoke_result<Func, std::vector<Future<T> > >::type;
-    std::shared_ptr<carpal_private::ContinuationTaskArray<R, Func, T> > pRet
-        = std::make_shared<carpal_private::ContinuationTaskArray<R, Func, T> >(defaultExecutor(), std::move(func), std::move(futures));
+    IntrusiveSharedPtr<carpal_private::ContinuationTaskArray<R, Func, T> > pRet(
+        new carpal_private::ContinuationTaskArray<R, Func, T>(defaultExecutor(), std::move(func), std::move(futures)));
     carpal_private::ContinuationTaskArray<R, Func, T>::attachContinuations(pRet);
     return Future<R>(pRet);
 }
@@ -1346,7 +784,7 @@ Future<T> exceptionFuture(std::exception_ptr ex) {
 template<typename R, typename LoopFunc, typename PredicateFunc>
 Future<R> executeAsyncLoop(Executor* pExecutor, PredicateFunc loopingPredicate, LoopFunc loopFunc, R const& start)
 {
-    std::shared_ptr<PromiseFuturePair<R> > ret = std::make_shared<PromiseFuturePair<R> >();
+    IntrusiveSharedPtr<PromiseFuturePair<R> > ret(new PromiseFuturePair<R>());
     carpal_private::auxLoop(pExecutor, loopingPredicate, loopFunc, start, ret);
     return Future<R>(ret);
 }
@@ -1365,5 +803,250 @@ private:
     std::condition_variable m_cond;
     std::list<Future<void> > m_futures;
 };
+
+#ifdef ENABLE_COROUTINES
+
+/** @brief Argument to co_await to force the current coroutine to invoke the scheduler to probably switch the execution to some other thread.
+ * */
+class SwitchThread {
+    // empty
+};
+
+/** @brief An awaiter that forces the current coroutine to invoke the scheduler to probably switch the execution to some other thread.
+ * */
+class SwitchThreadAwaiter {
+public:
+    SwitchThreadAwaiter(CoroutineScheduler* pScheduler, bool doSwitch)
+        :m_pScheduler(pScheduler),
+        m_doSwitch(doSwitch)
+    {
+        // empty
+    }
+    bool await_ready() const {
+        return !m_doSwitch;
+    }
+    void await_suspend(std::coroutine_handle<void> thisHandler) {
+        CARPAL_LOG_DEBUG("SwitchThreadAwaiter::await_suspend() making coroutine ", thisHandler.address(), " runnable");
+        m_pScheduler->markRunnable(thisHandler);
+        CARPAL_LOG_DEBUG("SwitchThreadAwaiter::await_suspend() after");
+    }
+    void await_resume() {
+        CARPAL_LOG_DEBUG("SwitchThreadAwaiter::await_resume()");
+        // empty
+    }
+private:
+    CoroutineScheduler* m_pScheduler;
+    bool m_doSwitch;
+};
+
+inline
+SwitchThreadAwaiter create_awaiter(CoroutineScheduler* pScheduler, SwitchThread dummy) {
+    return SwitchThreadAwaiter(pScheduler, true);
+}
+
+template<typename T>
+class FutureAwaiter {
+public:
+    FutureAwaiter(CoroutineScheduler* pScheduler, Future<T> future)
+        :m_pScheduler(pScheduler),
+        m_pFuture(std::move(future))
+    {
+        // nothing else
+    }
+
+    bool await_ready() const {
+        return m_pFuture.isComplete();
+    }
+    void await_suspend(std::coroutine_handle<void> thisHandler) {
+        CoroutineScheduler* pScheduler = m_pScheduler;
+        m_pFuture.addSynchronousCallback([pScheduler, thisHandler]() {
+            pScheduler->markRunnable(thisHandler);
+        });
+    }
+    T await_resume() {
+        return m_pFuture.get();
+    }
+private:
+    CoroutineScheduler* m_pScheduler;
+    Future<T> m_pFuture;
+};
+
+template<typename T>
+FutureAwaiter<T> create_awaiter(CoroutineScheduler* pScheduler, Future<T> future) {
+    return FutureAwaiter<T>(pScheduler, std::move(future));
+}
+
+class PromiseFuturePairBaseFinalAwaiter {
+public:
+    explicit PromiseFuturePairBaseFinalAwaiter(PromiseFuturePairBase* ptr) noexcept
+        :m_ptr(ptr){}
+    bool await_ready() const noexcept {
+        return false;
+    }
+    void await_suspend(std::coroutine_handle<void> thisHandler) noexcept {
+        m_ptr->removeRef();
+    }
+    void await_resume() const noexcept {
+        assert(false);
+    }
+private:
+    PromiseFuturePairBase* m_ptr;
+};
+
+template<typename T>
+class Future<T>::promise_type : public PromiseFuturePair<T> {
+public:
+    promise_type()
+        :m_pScheduler(defaultCoroutineScheduler())
+    {
+        CARPAL_LOG_DEBUG("Asynchronous coroutine promise object created @", static_cast<void const*>(this),
+            " on default scheduler @", static_cast<void const*>(m_pScheduler));
+        this->addRef(); // this reference will be removed in final_suspend()
+    }
+
+    template<typename... Args>
+    explicit promise_type(CoroutineScheduler* pScheduler, Args const&...)
+        :m_pScheduler(pScheduler)
+    {
+        CARPAL_LOG_DEBUG("Asynchronous coroutine promise object created @", static_cast<void const*>(this),
+            " on scheduler @", static_cast<void const*>(m_pScheduler));
+        this->addRef(); // this reference will be removed in final_suspend()
+    }
+
+    template<typename MethodClass, typename... Args>
+    promise_type(MethodClass const& /* *this */, CoroutineScheduler* pScheduler, Args const&...)
+        :m_pScheduler(pScheduler)
+    {
+        CARPAL_LOG_DEBUG("Asynchronous coroutine promise object created @", static_cast<void const*>(this),
+            " on scheduler @", static_cast<void const*>(m_pScheduler));
+        this->addRef(); // this reference will be removed in final_suspend()
+    }
+
+    ~promise_type() {
+        CARPAL_LOG_DEBUG("Asynchronous coroutine promise object @", static_cast<void const*>(this), " destroyed");
+    }
+
+    SwitchThreadAwaiter initial_suspend() {
+        return SwitchThreadAwaiter(m_pScheduler, m_pScheduler->initSwitchThread());
+    }
+
+    PromiseFuturePairBaseFinalAwaiter final_suspend() noexcept {
+        return PromiseFuturePairBaseFinalAwaiter(this);
+    }
+
+    void unhandled_exception() {
+        this->setException(std::current_exception());
+    }
+
+    Future<T> get_return_object() {
+        this->m_handle = std::coroutine_handle<Future<T>::promise_type>::from_promise(*this);
+        CARPAL_LOG_DEBUG("Future coroutine handle=", m_handle.address(), " created; promise object @", static_cast<void const*>(this));
+        return Future<T>(IntrusiveSharedPtr<promise_type>(this));
+    }
+
+    void return_value(T val) {
+        this->set(std::move(val));
+    }
+
+    SwitchThreadAwaiter await_transform(CoroutineScheduler* pNewScheduler) {
+        CARPAL_LOG_DEBUG("Switching coroutine @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(pNewScheduler));
+        m_pScheduler = pNewScheduler;
+        return SwitchThreadAwaiter(m_pScheduler, m_pScheduler->initSwitchThread());
+    }
+
+    template<typename What>
+    auto await_transform(What&& what) {
+        return create_awaiter(m_pScheduler, std::forward<What>(what));
+    }
+
+    void dispose() override {
+        m_handle.destroy();
+    }
+
+private:
+    friend class Future<T>;
+
+    CoroutineScheduler* m_pScheduler;
+    std::coroutine_handle<Future<T>::promise_type> m_handle;
+};
+
+//template<>
+class Future<void>::promise_type : public PromiseFuturePair<void> {
+public:
+    promise_type()
+        :m_pScheduler(defaultCoroutineScheduler())
+    {
+        CARPAL_LOG_DEBUG("Asynchronous coroutine promise object created @", static_cast<void const*>(this),
+            " on default scheduler @", static_cast<void const*>(m_pScheduler));
+        this->addRef(); // this reference will be removed in final_suspend()
+    }
+
+    template<typename... Args>
+    explicit promise_type(CoroutineScheduler* pScheduler, Args const&...)
+        :m_pScheduler(pScheduler)
+    {
+        CARPAL_LOG_DEBUG("Asynchronous coroutine promise object created @", static_cast<void const*>(this),
+            " on scheduler @", static_cast<void const*>(m_pScheduler));
+        this->addRef(); // this reference will be removed in final_suspend()
+    }
+
+    template<typename MethodClass, typename... Args>
+    promise_type(MethodClass const& /* *this */, CoroutineScheduler* pScheduler, Args const&...)
+        :m_pScheduler(pScheduler)
+    {
+        CARPAL_LOG_DEBUG("Asynchronous coroutine promise object created @", static_cast<void const*>(this),
+            " on scheduler @", static_cast<void const*>(m_pScheduler));
+        this->addRef(); // this reference will be removed in final_suspend()
+    }
+
+    ~promise_type() {
+        CARPAL_LOG_DEBUG("Asynchronous coroutine promise object @", static_cast<void const*>(this), " destroyed");
+    }
+
+    SwitchThreadAwaiter initial_suspend() {
+        return SwitchThreadAwaiter(m_pScheduler, m_pScheduler->initSwitchThread());
+    }
+
+    PromiseFuturePairBaseFinalAwaiter final_suspend() noexcept {
+        return PromiseFuturePairBaseFinalAwaiter(this);
+    }
+
+    void unhandled_exception() {
+        this->setException(std::current_exception());
+    }
+
+    Future<void> get_return_object() {
+        this->m_handle = std::coroutine_handle<Future<void>::promise_type>::from_promise(*this);
+        CARPAL_LOG_DEBUG("Future coroutine handle=", m_handle.address(), " created; promise object @", static_cast<void const*>(this));
+        return Future<void>(IntrusiveSharedPtr<promise_type>(this));
+    }
+
+    void return_void() {
+        this->set();
+    }
+
+    SwitchThreadAwaiter await_transform(CoroutineScheduler* pNewScheduler) {
+        CARPAL_LOG_DEBUG("Switching coroutine @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(pNewScheduler));
+        m_pScheduler = pNewScheduler;
+        return SwitchThreadAwaiter(m_pScheduler, m_pScheduler->initSwitchThread());
+    }
+
+    template<typename What>
+    auto await_transform(What&& what) {
+        return create_awaiter(m_pScheduler, std::forward<What>(what));
+    }
+
+    void dispose() override {
+        m_handle.destroy();
+    }
+
+private:
+    friend class Future<void>;
+
+    CoroutineScheduler* m_pScheduler;
+    std::coroutine_handle<Future<void>::promise_type> m_handle;
+};
+
+#endif
 
 } // namespace carpal

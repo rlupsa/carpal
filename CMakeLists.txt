@@ -25,6 +25,7 @@ endif()
 configure_file("src/config.h.in" "include/carpal/config.h")
 set(CARPAL_SOURCES
   "src/Future.cpp"
+  "src/PromiseFuturePair.cpp"
   "src/ThreadPool.cpp"
   "src/Timer.cpp")
 set(CARPAL_HEADERS
@@ -32,13 +33,15 @@ set(CARPAL_HEADERS
   "src/include/carpal/Logger.h"
   "src/include/carpal/Executor.h"
   "src/include/carpal/Future.h"
+  "src/include/carpal/FutureHelpers.h"
+  "src/include/carpal/IntrusiveSharedPtr.h"
+  "src/include/carpal/PromiseFuturePair.h"
   "src/include/carpal/ThreadPool.h"
   "src/include/carpal/Timer.h")
 if(ENABLE_COROUTINES)
     #list(APPEND CARPAL_SOURCES)
     list(APPEND CARPAL_HEADERS
-        "src/include/carpal/CoroutineScheduler.h"
-        "src/include/carpal/AsyncCoroutine.h")
+        "src/include/carpal/CoroutineScheduler.h")
 endif(ENABLE_COROUTINES)
 if(CARPAL_ENABLE_LOGGING)
     list(APPEND CARPAL_SOURCES "src/Logger.cpp")
