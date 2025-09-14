@@ -65,6 +65,30 @@ public:
     }
 };
 
+class PeriodicTimerQueueObject : public SingleProducerSingleConsumerQueue<std::chrono::system_clock::time_point>, public BaseTimer {
+public:
+    PeriodicTimerQueueObject(std::chrono::system_clock::duration const& period, std::chrono::system_clock::time_point const& when, AlarmClock* pClock)
+        :BaseTimer(when, pClock),
+        m_period(period)
+    {
+        // nothing else
+    }
+    bool trigger() override {
+        CARPAL_LOG_DEBUG("Triggering timer @", static_cast<void const*>(this));
+        this->enqueue(StreamValue<std::chrono::system_clock::time_point,void>::makeItem(m_when));
+        m_when += m_period;
+        return true;
+    }
+    void cancel() override {
+        this->enqueue(StreamValue<std::chrono::system_clock::time_point,void>::makeEof());
+    }
+    void unlinkFromClock() override {
+        this->removeRef();
+    }
+protected:
+    std::chrono::system_clock::duration m_period;
+};
+
 } // namespace carpal_private
 
 Timer::Timer(IntrusiveSharedPtr<carpal_private::TimerFutureObject> pFuture)
@@ -79,6 +103,22 @@ Future<bool> Timer::getFuture() {
 
 void Timer::cancel() {
     m_pFuture->clock()->cancelTimerObject(m_pFuture.ptr());
+}
+
+PeriodicTimer::PeriodicTimer(IntrusiveSharedPtr<carpal_private::PeriodicTimerQueueObject> queue)
+    :m_queue(queue)
+{
+    // empty
+}
+
+PeriodicTimer::~PeriodicTimer() = default;
+
+StreamSource<std::chrono::system_clock::time_point> PeriodicTimer::getStream() {
+    return StreamSource<std::chrono::system_clock::time_point>(m_queue);
+}
+
+void PeriodicTimer::cancel() {
+    m_queue->clock()->cancelTimerObject(m_queue.ptr());
 }
 
 AlarmClock::AlarmClock()
@@ -109,6 +149,22 @@ Timer AlarmClock::setTimer(std::chrono::system_clock::time_point when) {
 
 Timer AlarmClock::setTimerAfter(std::chrono::system_clock::duration delta) {
     return setTimer(std::chrono::system_clock::now() + delta);
+}
+
+PeriodicTimer AlarmClock::setPeriodicTimer(std::chrono::system_clock::duration period) {
+    return setPeriodicTimerStartAt(period, std::chrono::system_clock::now() + period);
+}
+
+PeriodicTimer AlarmClock::setPeriodicTimerStartAt(std::chrono::system_clock::duration period, std::chrono::system_clock::time_point when) {
+    carpal_private::PeriodicTimerQueueObject* pTimerObject = new carpal_private::PeriodicTimerQueueObject(period, when, this);
+    CARPAL_LOG_DEBUG("Created periodic timer @", static_cast<void const*>(pTimerObject), " to trigger first at ", when);
+    std::unique_lock<std::mutex> lck(m_mtx);
+    addTimerObject(pTimerObject);
+    return PeriodicTimer(IntrusiveSharedPtr<carpal_private::PeriodicTimerQueueObject>(pTimerObject));
+}
+
+PeriodicTimer AlarmClock::setPeriodicTimerStartAfter(std::chrono::system_clock::duration period, std::chrono::system_clock::duration delta) {
+    return setPeriodicTimerStartAt(period, std::chrono::system_clock::now() + delta);
 }
 
 void AlarmClock::cancelTimerObject(carpal_private::BaseTimer* pTimerObject) {
@@ -185,4 +241,5 @@ AlarmClock* alarmClock() {
     static AlarmClock alarmClock;
     return &alarmClock;
 }
+
 } // namespace carpal

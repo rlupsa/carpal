@@ -36,6 +36,8 @@ set(CARPAL_HEADERS
   "src/include/carpal/FutureHelpers.h"
   "src/include/carpal/IntrusiveSharedPtr.h"
   "src/include/carpal/PromiseFuturePair.h"
+  "src/include/carpal/SingleProducerConsumerQueue.h"
+  "src/include/carpal/StreamSource.h"
   "src/include/carpal/ThreadPool.h"
   "src/include/carpal/Timer.h")
 if(ENABLE_COROUTINES)
@@ -70,10 +72,12 @@ if(BUILD_CARPAL_TESTS)
         "tests/Test.cpp"
         "tests/TestHelper.h"
         "tests/TestFutures.cpp"
+        "tests/TestSingleProducerConsumerQueue.cpp"
         "tests/TestTimer.cpp")
     if(ENABLE_COROUTINES)
         list(APPEND CARPAL_TEST_SOURCES
             "tests/TestAsyncCoroutine.cpp"
+            "tests/TestAsyncGenerator.cpp"
             "tests/TestCustomAwaiter.cpp"
             "tests/TestOneThreadScheduler.cpp")
     endif(ENABLE_COROUTINES)

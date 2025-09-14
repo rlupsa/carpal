@@ -5,6 +5,7 @@
 #pragma once
 
 #include "carpal/Future.h"
+#include "carpal/StreamSource.h"
 
 #include <chrono>
 #include <set>
@@ -13,6 +14,7 @@
 
 namespace carpal {
 
+class AlarmClock;
 class Timer;
 class AlarmClock;
 
@@ -20,6 +22,7 @@ namespace carpal_private {
 
 class BaseTimer;
 class TimerFutureObject;
+class PeriodicTimerQueueObject;
 
 } // namespace carpal_private
 
@@ -34,6 +37,17 @@ private:
     IntrusiveSharedPtr<carpal_private::TimerFutureObject> m_pFuture;
 };
 
+class PeriodicTimer {
+public:
+    PeriodicTimer(IntrusiveSharedPtr<carpal_private::PeriodicTimerQueueObject> queue);
+    ~PeriodicTimer();
+    StreamSource<std::chrono::system_clock::time_point> getStream();
+    void cancel();
+
+private:
+    IntrusiveSharedPtr<carpal_private::PeriodicTimerQueueObject> m_queue;
+};
+
 /** @brief An object that can be used for scheduling one-shot or periodic actions
  * */
 class AlarmClock {
@@ -46,15 +60,16 @@ public:
     void close();
     Timer setTimer(std::chrono::system_clock::time_point when);
     Timer setTimerAfter(std::chrono::system_clock::duration delta);
-    
-    template<typename Func>
-    Future<typename std::invoke_result<Func>::type> setTimedAction();
 
-    void cancelTimer(std::shared_ptr<carpal_private::TimerFutureObject> pTimerObject);
+    PeriodicTimer setPeriodicTimer(std::chrono::system_clock::duration period);
+    PeriodicTimer setPeriodicTimerStartAt(std::chrono::system_clock::duration period, std::chrono::system_clock::time_point when);
+    PeriodicTimer setPeriodicTimerStartAfter(std::chrono::system_clock::duration period, std::chrono::system_clock::duration delta);
 
 private:
     friend class Timer;
+    friend class PeriodicTimer;
     friend class carpal_private::TimerFutureObject;
+    friend class carpal_private::PeriodicTimerQueueObject;
 
     void cancelTimerObject(carpal_private::BaseTimer* pTimerObject);
     void addTimerObject(carpal_private::BaseTimer* pTimerObject);
