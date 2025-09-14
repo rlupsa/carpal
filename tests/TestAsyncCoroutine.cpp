@@ -13,16 +13,18 @@
 
 using namespace carpal;
 
-carpal::Future<int> coroFunc(carpal::CoroutineScheduler*, int const& v) {
+carpal::Future<int> coroFunc(CoroutineSchedulingInfo const& schedulingInfo, int const& v) {
+    co_await schedulingInfo;
     co_return v + 1;
 };
 
-carpal::Future<int> coroFuncDeferred(carpal::CoroutineScheduler*, int const& v) {
-    co_await SwitchThread();
+carpal::Future<int> coroFuncDeferred(CoroutineSchedulingInfo const& schedulingInfo, int const& v) {
+    co_await schedulingInfo.parallelStart();
     co_return v + 1;
 };
 
-carpal::Future<int> coroFunc_future(carpal::CoroutineScheduler*, Future<int> f) {
+carpal::Future<int> coroFunc_future(CoroutineSchedulingInfo const& schedulingInfo, Future<int> f) {
+    co_await schedulingInfo;
     int ret = (co_await f) + 1;
     co_return ret;
 };
@@ -51,7 +53,7 @@ carpal::Future<void> coroFunc_wait(Future<int> f1, Future<void> f2) {
 TEST_CASE("SimpleCoroutine_async_immediate_int", "[asyncCoroutine]") {
     carpal::ThreadPool scheduler(2);
 
-    carpal::Future<int> coro = coroFunc(&scheduler, 10);
+    carpal::Future<int> coro = coroFunc(scheduler.sameThreadStart(), 10);
     CHECK(coro.get() == 11);
 }
 
@@ -84,7 +86,7 @@ TEST_CASE("SimpleCoroutine_Future_int_not_completed_deferred", "[asyncCoroutine]
     Future<int> f = p.future();
     auto id = std::this_thread::get_id();
     auto coroFunc = [f,id]() -> Future<int> {
-        co_await SwitchThread();
+        co_await defaultParallelStart();
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         CHECK(id != std::this_thread::get_id());
         CHECK(f.isComplete());
@@ -102,7 +104,7 @@ TEST_CASE("SimpleCoroutine_Future_int_not_completed2", "[asyncCoroutine]") {
     auto f1 = executeLaterVoid([p](){
         p.set(20);
     }, 200);
-    auto coro = coroFunc_future(defaultCoroutineScheduler(), f);
+    auto coro = coroFunc_future(defaultSameThreadStart(), f);
     CHECK(coro.get() == 21);
 }
 
@@ -113,7 +115,7 @@ TEST_CASE("SimpleCoroutine_layers", "[asyncCoroutine]") {
         co_return co_await(f);
     };
     auto f1 = executeLaterVoid([p](){p.set(20);}, 300);
-    auto coro = coroFunc_future(defaultCoroutineScheduler(), f);
+    auto coro = coroFunc_future(defaultSameThreadStart(), f);
     CHECK(coro.get() == 21);
     CHECK(f.get() == 20);
 }

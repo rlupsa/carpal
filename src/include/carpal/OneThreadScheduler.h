@@ -1,73 +1,53 @@
-// Copyright Radu Lupsa 2023
+// Copyright Radu Lupsa 2023-2024
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE.txt or copy at  https://www.boost.org/LICENSE_1_0.txt )
 
 #pragma once
 
-#include <functional>
-#include <deque>
-#include <queue>
-#include <vector>
-#include <thread>
-#include <condition_variable>
-#include <unordered_set>
-
-#include "carpal/config.h"
-#include "Executor.h"
-#ifdef ENABLE_COROUTINES
 #include "CoroutineScheduler.h"
-#endif // ENABLE_COROUTINES
+
+#include <thread>
 
 namespace carpal {
 
-class ThreadPool
-#ifdef ENABLE_COROUTINES
-    : public CoroutineScheduler
-#else // ENABLE_COROUTINES
-    : public Executor
-#endif // not ENABLE_COROUTINES
-{
+/** @brief Scheduler for coroutines
+ * */
+class OneThreadScheduler : public CoroutineScheduler {
 public:
-    explicit ThreadPool(unsigned nrThreads);
-    ~ThreadPool() override;
+    OneThreadScheduler();
+    OneThreadScheduler(std::thread::id threadId);
+
+    ~OneThreadScheduler() override;
+
     void enqueue(std::function<void()> func) override;
 
-    void close();
-
-#ifdef ENABLE_COROUTINES
     bool initSwitchThread() const override;
 
     void markRunnable(std::coroutine_handle<void> h) override;
-#endif // ENABLE_COROUTINES
 
     void markCompleted(const void* id) override;
 
     void waitFor(const void* id) override;
-
-#ifdef ENABLE_COROUTINES
+    
     CoroutineSchedulingInfo sameThreadStart() {
         return CoroutineSchedulingInfo(this, CoroutineStart::sameThread);
     }
     CoroutineSchedulingInfo parallelStart() {
         return CoroutineSchedulingInfo(this, CoroutineStart::parallel);
     }
-#endif // ENABLE_COROUTINES
+
+    void runAllPending();
 
 private:
-    void threadFunc();
+    std::thread::id const m_threadId;
 
     std::mutex m_mtx;
     std::condition_variable m_cv;
-    std::queue<std::function<void()> > m_tasks;
     bool m_isEnding = false;
 
-#ifdef ENABLE_COROUTINES
+    std::queue<std::function<void()> > m_tasks;
     std::queue<std::coroutine_handle<void> > m_runnableHandlers;
-#endif // ENABLE_COROUTINES
-
     std::unordered_set<void const*> m_finishedWaiters;
-
-    std::vector<std::thread> m_threads;
 };
 
 } // namespace carpal

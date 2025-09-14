@@ -806,44 +806,6 @@ private:
 
 #ifdef ENABLE_COROUTINES
 
-/** @brief Argument to co_await to force the current coroutine to invoke the scheduler to probably switch the execution to some other thread.
- * */
-class SwitchThread {
-    // empty
-};
-
-/** @brief An awaiter that forces the current coroutine to invoke the scheduler to probably switch the execution to some other thread.
- * */
-class SwitchThreadAwaiter {
-public:
-    SwitchThreadAwaiter(CoroutineScheduler* pScheduler, bool doSwitch)
-        :m_pScheduler(pScheduler),
-        m_doSwitch(doSwitch)
-    {
-        // empty
-    }
-    bool await_ready() const {
-        return !m_doSwitch;
-    }
-    void await_suspend(std::coroutine_handle<void> thisHandler) {
-        CARPAL_LOG_DEBUG("SwitchThreadAwaiter::await_suspend() making coroutine ", thisHandler.address(), " runnable");
-        m_pScheduler->markRunnable(thisHandler);
-        CARPAL_LOG_DEBUG("SwitchThreadAwaiter::await_suspend() after");
-    }
-    void await_resume() {
-        CARPAL_LOG_DEBUG("SwitchThreadAwaiter::await_resume()");
-        // empty
-    }
-private:
-    CoroutineScheduler* m_pScheduler;
-    bool m_doSwitch;
-};
-
-inline
-SwitchThreadAwaiter create_awaiter(CoroutineScheduler* pScheduler, SwitchThread dummy) {
-    return SwitchThreadAwaiter(pScheduler, true);
-}
-
 template<typename T>
 class FutureAwaiter {
 public:
@@ -904,30 +866,12 @@ public:
         this->addRef(); // this reference will be removed in final_suspend()
     }
 
-    template<typename... Args>
-    explicit promise_type(CoroutineScheduler* pScheduler, Args const&...)
-        :m_pScheduler(pScheduler)
-    {
-        CARPAL_LOG_DEBUG("Asynchronous coroutine promise object created @", static_cast<void const*>(this),
-            " on scheduler @", static_cast<void const*>(m_pScheduler));
-        this->addRef(); // this reference will be removed in final_suspend()
-    }
-
-    template<typename MethodClass, typename... Args>
-    promise_type(MethodClass const& /* *this */, CoroutineScheduler* pScheduler, Args const&...)
-        :m_pScheduler(pScheduler)
-    {
-        CARPAL_LOG_DEBUG("Asynchronous coroutine promise object created @", static_cast<void const*>(this),
-            " on scheduler @", static_cast<void const*>(m_pScheduler));
-        this->addRef(); // this reference will be removed in final_suspend()
-    }
-
     ~promise_type() {
         CARPAL_LOG_DEBUG("Asynchronous coroutine promise object @", static_cast<void const*>(this), " destroyed");
     }
 
-    SwitchThreadAwaiter initial_suspend() {
-        return SwitchThreadAwaiter(m_pScheduler, m_pScheduler->initSwitchThread());
+    std::suspend_never initial_suspend() {
+        return std::suspend_never();
     }
 
     PromiseFuturePairBaseFinalAwaiter final_suspend() noexcept {
@@ -948,10 +892,20 @@ public:
         this->set(std::move(val));
     }
 
-    SwitchThreadAwaiter await_transform(CoroutineScheduler* pNewScheduler) {
-        CARPAL_LOG_DEBUG("Switching coroutine @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(pNewScheduler));
-        m_pScheduler = pNewScheduler;
-        return SwitchThreadAwaiter(m_pScheduler, m_pScheduler->initSwitchThread());
+    SwitchThreadAwaiter await_transform(CoroutineSchedulingInfo const& newSchedulingInfo) {
+        CARPAL_LOG_DEBUG("Switching coroutine @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
+        m_pScheduler = newSchedulingInfo.scheduler();
+        return SwitchThreadAwaiter(newSchedulingInfo);
+    }
+    SwitchThreadAwaiter await_transform(CoroutineSchedulingInfo&& newSchedulingInfo) {
+        CARPAL_LOG_DEBUG("Switching coroutine @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
+        m_pScheduler = newSchedulingInfo.scheduler();
+        return SwitchThreadAwaiter(newSchedulingInfo);
+    }
+    SwitchThreadAwaiter await_transform(CoroutineSchedulingInfo& newSchedulingInfo) {
+        CARPAL_LOG_DEBUG("Switching coroutine @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
+        m_pScheduler = newSchedulingInfo.scheduler();
+        return SwitchThreadAwaiter(newSchedulingInfo);
     }
 
     template<typename What>
@@ -981,30 +935,12 @@ public:
         this->addRef(); // this reference will be removed in final_suspend()
     }
 
-    template<typename... Args>
-    explicit promise_type(CoroutineScheduler* pScheduler, Args const&...)
-        :m_pScheduler(pScheduler)
-    {
-        CARPAL_LOG_DEBUG("Asynchronous coroutine promise object created @", static_cast<void const*>(this),
-            " on scheduler @", static_cast<void const*>(m_pScheduler));
-        this->addRef(); // this reference will be removed in final_suspend()
-    }
-
-    template<typename MethodClass, typename... Args>
-    promise_type(MethodClass const& /* *this */, CoroutineScheduler* pScheduler, Args const&...)
-        :m_pScheduler(pScheduler)
-    {
-        CARPAL_LOG_DEBUG("Asynchronous coroutine promise object created @", static_cast<void const*>(this),
-            " on scheduler @", static_cast<void const*>(m_pScheduler));
-        this->addRef(); // this reference will be removed in final_suspend()
-    }
-
     ~promise_type() {
         CARPAL_LOG_DEBUG("Asynchronous coroutine promise object @", static_cast<void const*>(this), " destroyed");
     }
 
-    SwitchThreadAwaiter initial_suspend() {
-        return SwitchThreadAwaiter(m_pScheduler, m_pScheduler->initSwitchThread());
+    std::suspend_never initial_suspend() {
+        return std::suspend_never();
     }
 
     PromiseFuturePairBaseFinalAwaiter final_suspend() noexcept {
@@ -1025,10 +961,20 @@ public:
         this->set();
     }
 
-    SwitchThreadAwaiter await_transform(CoroutineScheduler* pNewScheduler) {
-        CARPAL_LOG_DEBUG("Switching coroutine @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(pNewScheduler));
-        m_pScheduler = pNewScheduler;
-        return SwitchThreadAwaiter(m_pScheduler, m_pScheduler->initSwitchThread());
+    SwitchThreadAwaiter await_transform(CoroutineSchedulingInfo const& newSchedulingInfo) {
+        CARPAL_LOG_DEBUG("Switching coroutine @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
+        m_pScheduler = newSchedulingInfo.scheduler();
+        return SwitchThreadAwaiter(newSchedulingInfo);
+    }
+    SwitchThreadAwaiter await_transform(CoroutineSchedulingInfo&& newSchedulingInfo) {
+        CARPAL_LOG_DEBUG("Switching coroutine @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
+        m_pScheduler = newSchedulingInfo.scheduler();
+        return SwitchThreadAwaiter(newSchedulingInfo);
+    }
+    SwitchThreadAwaiter await_transform(CoroutineSchedulingInfo& newSchedulingInfo) {
+        CARPAL_LOG_DEBUG("Switching coroutine @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
+        m_pScheduler = newSchedulingInfo.scheduler();
+        return SwitchThreadAwaiter(newSchedulingInfo);
     }
 
     template<typename What>

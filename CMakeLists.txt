@@ -15,11 +15,11 @@ else()
 set(CXX_STANDARD 17)
 endif()
 
-if(BUILD_CARPAL_TESTS)
-set(CMAKE_BUILD_TYPE Debug)
-else()
-set(CMAKE_BUILD_TYPE RelWithDebInfo)
-endif()
+#if(BUILD_CARPAL_TESTS)
+#set(CMAKE_BUILD_TYPE Debug)
+#else()
+#set(CMAKE_BUILD_TYPE RelWithDebInfo)
+#endif()
 
 # Library
 configure_file("src/config.h.in" "include/carpal/config.h")
@@ -39,9 +39,11 @@ set(CARPAL_HEADERS
   "src/include/carpal/ThreadPool.h"
   "src/include/carpal/Timer.h")
 if(ENABLE_COROUTINES)
-    #list(APPEND CARPAL_SOURCES)
     list(APPEND CARPAL_HEADERS
-        "src/include/carpal/CoroutineScheduler.h")
+        "src/include/carpal/CoroutineScheduler.h"
+        "src/include/carpal/OneThreadScheduler.h" )
+    list(APPEND CARPAL_SOURCES
+        "src/OneThreadScheduler.cpp")
 endif(ENABLE_COROUTINES)
 if(CARPAL_ENABLE_LOGGING)
     list(APPEND CARPAL_SOURCES "src/Logger.cpp")
@@ -72,7 +74,8 @@ if(BUILD_CARPAL_TESTS)
     if(ENABLE_COROUTINES)
         list(APPEND CARPAL_TEST_SOURCES
             "tests/TestAsyncCoroutine.cpp"
-            "tests/TestCustomAwaiter.cpp")
+            "tests/TestCustomAwaiter.cpp"
+            "tests/TestOneThreadScheduler.cpp")
     endif(ENABLE_COROUTINES)
     add_executable(carpal_test ${CARPAL_TEST_SOURCES})
     target_link_libraries(carpal_test carpal Catch2::Catch2WithMain)
