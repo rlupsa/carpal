@@ -2,7 +2,7 @@
 # Distributed under the Boost Software License, Version 1.0.
 # (See accompanying file LICENSE.txt or copy at  https://www.boost.org/LICENSE_1_0.txt )
 
-cmake_minimum_required(VERSION 2.18)
+cmake_minimum_required(VERSION 2.24)
 project(carpal LANGUAGES CXX)
 
 option(BUILD_CARPAL_TESTS "Build tests" ON)
@@ -60,6 +60,7 @@ if(BUILD_CARPAL_TESTS)
       Catch2
       GIT_REPOSITORY https://github.com/catchorg/Catch2.git
       GIT_TAG        v3.4.0 # or a later release
+      FIND_PACKAGE_ARGS 3.4
     )
     FetchContent_MakeAvailable(Catch2)
 
