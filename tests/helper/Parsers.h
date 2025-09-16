@@ -14,6 +14,9 @@ uint64_t sumIntegersDirect(std::string const& content);
 // gets characters from the reader, parses them into integers and sums them
 uint64_t sumIntegersThroughReader(std::shared_ptr<TestHelperStreamReader> pReader);
 
+// gets characters from the reader trhough a queue, parses them into integers and sums them
+uint64_t sumIntegersThroughQueuePull(std::shared_ptr<TestHelperStreamReader> pReader);
+
 // regular generator returning the characters
 Generator<char,EofMark> textCharGenerator(std::string const* pString);
 

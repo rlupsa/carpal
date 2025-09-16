@@ -70,6 +70,9 @@ TEST_CASE("Perf_parse_parser", "[perfParse]") {
     pReader->rewind();
     CHECK(sumIntegersThroughReader(pReader) == 51);
 
+    pReader->rewind();
+    CHECK(sumIntegersThroughQueuePull(pReader) == 51);
+
     CHECK(sumIntegersThroughGenerator(textCharGenerator(&testString)) == 51);
     CHECK(sumIntegersThroughIntGenerator(integersParserThroughGenerator(textCharGenerator(&testString))) == 51);
     CHECK(sumIntegersThroughFunctionGenerator(functionsGenerator(&testString)) == 51);
@@ -90,6 +93,10 @@ TEST_CASE("Perf_parse_parser", "[perfParse]") {
     BENCHMARK("virtual") {
         pReader2->rewind();
         return sumIntegersThroughReader(pReader2);
+    };
+    BENCHMARK("queuePull") {
+        pReader2->rewind();
+        return sumIntegersThroughQueuePull(pReader2);
     };
     BENCHMARK("generator") {return sumIntegersThroughGenerator(textCharGenerator(&s));};
     BENCHMARK("generator2") {return sumIntegersThroughIntGenerator(integersParserThroughGenerator(textCharGenerator(&s)));};

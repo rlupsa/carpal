@@ -51,6 +51,36 @@ uint64_t sumIntegersThroughReader(std::shared_ptr<TestHelperStreamReader> pReade
     return sum;
 }
 
+uint64_t sumIntegersThroughQueuePull(std::shared_ptr<TestHelperStreamReader> pReader) {
+    carpal::SingleProducerSingleConsumerQueue<char> queue;
+
+    uint64_t sum = 0;
+    uint64_t current = 0;
+    while(true) {
+        queue.setOnSlotAvailableOnceCallback([pReader,&queue](){
+            char c;
+            if(pReader->read(&c, 1) < 1) {
+                queue.enqueue(carpal::StreamValue<char,void>::makeEof());
+            } else {
+                queue.enqueue(carpal::StreamValue<char,void>::makeItem(c));
+            }
+        });
+        carpal::StreamValue<char,void> val = queue.dequeue();
+        if(!val.isItem()) {
+            break;
+        }
+        char c = val.item();
+        if(c == ' ') {
+            sum += current;
+            current = 0;
+        } else {
+            current = current*10 + (c-'0');
+        }
+    }
+    sum += current;
+    return sum;
+}
+
 Generator<char,EofMark> textCharGenerator(std::string const* pString) {
     for(char c : *pString) {
         co_yield c;
