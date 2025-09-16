@@ -38,32 +38,32 @@ public:
         m_pQueue(pQueue),
         m_val(std::move(val))
     {
-        CARPAL_LOG_DEBUG("Creating QueueYieldAwaiter at ", static_cast<void const*>(this), " for queue at ", static_cast<void const*>(pQueue));
+        //CARPAL_LOG_DEBUG("Creating QueueYieldAwaiter at ", static_cast<void const*>(this), " for queue at ", static_cast<void const*>(pQueue));
     }
     ~QueueYieldAwaiter() {
-        CARPAL_LOG_DEBUG("Destroying QueueYieldAwaiter at ", static_cast<void const*>(this), " for queue at ", static_cast<void const*>(m_pQueue.ptr()));
+        //CARPAL_LOG_DEBUG("Destroying QueueYieldAwaiter at ", static_cast<void const*>(this), " for queue at ", static_cast<void const*>(m_pQueue.ptr()));
     }
     bool await_ready() {
         bool ret = m_pQueue->isSlotAvailable();
-        CARPAL_LOG_DEBUG("QueueYieldAwaiter at ", static_cast<void const*>(this), " await_ready() returning ", ret);
+        //CARPAL_LOG_DEBUG("QueueYieldAwaiter at ", static_cast<void const*>(this), " await_ready() returning ", ret);
         return ret;
     }
     void await_suspend(std::coroutine_handle<void> thisHandler) {
-        CARPAL_LOG_DEBUG("QueueYieldAwaiter at ", static_cast<void const*>(this), " await_suspend() suspending");
+        //CARPAL_LOG_DEBUG("QueueYieldAwaiter at ", static_cast<void const*>(this), " await_suspend() suspending");
         CoroutineScheduler* pScheduler = m_pScheduler;
         m_pQueue->setOnSlotAvailableOnceCallback([pScheduler, thisHandler]() {
-            CARPAL_LOG_DEBUG("QueueYieldAwaiter marking ready");
-            pScheduler->markRunnable(thisHandler);
+            //CARPAL_LOG_DEBUG("QueueYieldAwaiter marking ready");
+            pScheduler->markRunnable(thisHandler, true);
         });
     }
     void await_resume() {
-        CARPAL_LOG_DEBUG("QueueYieldAwaiter at ", static_cast<void const*>(this), " await_resume() resumed");
+        //CARPAL_LOG_DEBUG("QueueYieldAwaiter at ", static_cast<void const*>(this), " await_resume() resumed");
         m_pQueue->enqueue(StreamValue<Item,Eof>::makeItem(std::move(m_val)));
     }
 
 private:
     CoroutineScheduler* m_pScheduler;
-    IntrusiveSharedPtr<SingleProducerSingleConsumerQueue<Item,Eof> > m_pQueue;
+    SingleProducerSingleConsumerQueue<Item,Eof>* m_pQueue;
     Item m_val;
 };
 
@@ -130,17 +130,17 @@ public:
     }
 
     SwitchThreadAwaiter await_transform(CoroutineSchedulingInfo const& newSchedulingInfo) {
-        CARPAL_LOG_DEBUG("Switching StreamSource coroutine @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
+        CARPAL_LOG_DEBUG("Switching StreamSource coroutine for promise @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
         m_pScheduler = newSchedulingInfo.scheduler();
         return SwitchThreadAwaiter(newSchedulingInfo);
     }
     SwitchThreadAwaiter await_transform(CoroutineSchedulingInfo&& newSchedulingInfo) {
-        CARPAL_LOG_DEBUG("Switching StreamSource coroutine @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
+        CARPAL_LOG_DEBUG("Switching StreamSource coroutine for promise @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
         m_pScheduler = newSchedulingInfo.scheduler();
         return SwitchThreadAwaiter(newSchedulingInfo);
     }
     SwitchThreadAwaiter await_transform(CoroutineSchedulingInfo& newSchedulingInfo) {
-        CARPAL_LOG_DEBUG("Switching StreamSource coroutine @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
+        CARPAL_LOG_DEBUG("Switching StreamSource coroutine for promise @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
         m_pScheduler = newSchedulingInfo.scheduler();
         return SwitchThreadAwaiter(newSchedulingInfo);
     }
@@ -215,17 +215,17 @@ public:
     }
 
     SwitchThreadAwaiter await_transform(CoroutineSchedulingInfo const& newSchedulingInfo) {
-        CARPAL_LOG_DEBUG("Switching StreamSource coroutine @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
+        CARPAL_LOG_DEBUG("Switching StreamSource coroutine for promise @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
         m_pScheduler = newSchedulingInfo.scheduler();
         return SwitchThreadAwaiter(newSchedulingInfo);
     }
     SwitchThreadAwaiter await_transform(CoroutineSchedulingInfo&& newSchedulingInfo) {
-        CARPAL_LOG_DEBUG("Switching StreamSource coroutine @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
+        CARPAL_LOG_DEBUG("Switching StreamSource coroutine for promise  @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
         m_pScheduler = newSchedulingInfo.scheduler();
         return SwitchThreadAwaiter(newSchedulingInfo);
     }
     SwitchThreadAwaiter await_transform(CoroutineSchedulingInfo& newSchedulingInfo) {
-        CARPAL_LOG_DEBUG("Switching StreamSource coroutine @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
+        CARPAL_LOG_DEBUG("Switching StreamSource coroutine for promise  @", static_cast<void const*>(this), " to scheduler @", static_cast<void const*>(newSchedulingInfo.scheduler()));
         m_pScheduler = newSchedulingInfo.scheduler();
         return SwitchThreadAwaiter(newSchedulingInfo);
     }
@@ -250,6 +250,9 @@ public:
     }
     IntrusiveSharedPtr<SingleProducerSingleConsumerQueue<Item,void> > queue() const {
         return m_pQueue;
+    }
+    SingleProducerSingleConsumerQueue<Item,void>* queuePtr() const {
+        return m_pQueue.ptr();
     }
 private:
     IntrusiveSharedPtr<SingleProducerSingleConsumerQueue<Item,void> > m_pQueue;
@@ -380,6 +383,9 @@ public:
     IntrusiveSharedPtr<SingleProducerSingleConsumerQueue<Item,Eof> > queue() const {
         return m_queue;
     }
+    SingleProducerSingleConsumerQueue<Item,Eof>* queuePtr() const {
+        return m_queue.ptr();
+    }
 private:
     IntrusiveSharedPtr<SingleProducerSingleConsumerQueue<Item,Eof> > m_queue;
 };
@@ -429,6 +435,9 @@ public:
     IntrusiveSharedPtr<SingleProducerSingleConsumerQueue<Item,void> > queue() const {
         return m_queue;
     }
+    SingleProducerSingleConsumerQueue<Item,void>* queuePtr() const {
+        return m_queue.ptr();
+    }
 private:
     IntrusiveSharedPtr<SingleProducerSingleConsumerQueue<Item,void> > m_queue;
 };
@@ -440,7 +449,7 @@ private:
 template<typename Item, typename Eof>
 class StreamSourceElementAwaiter {
 public:
-    StreamSourceElementAwaiter(CoroutineScheduler* pScheduler, IntrusiveSharedPtr<SingleProducerSingleConsumerQueue<Item,Eof> > pQueue)
+    StreamSourceElementAwaiter(CoroutineScheduler* pScheduler, SingleProducerSingleConsumerQueue<Item,Eof>* pQueue)
         :m_pScheduler(pScheduler),
         m_pQueue(pQueue)
         {}
@@ -451,30 +460,30 @@ public:
 
     bool await_ready() {
         bool ret = m_pQueue->isValueAvailable();
-        CARPAL_LOG_DEBUG("StreamSourceElementAwaiter at ", static_cast<void const*>(this), " await_ready() returning ", ret);
+        //CARPAL_LOG_DEBUG("StreamSourceElementAwaiter at ", static_cast<void const*>(this), " await_ready() returning ", ret);
         return ret;
     }
     void await_suspend(std::coroutine_handle<void> thisHandler) {
-        CARPAL_LOG_DEBUG("StreamSourceElementAwaiter at ", static_cast<void const*>(this), " await_suspend() suspending");
+        //CARPAL_LOG_DEBUG("StreamSourceElementAwaiter at ", static_cast<void const*>(this), " await_suspend() suspending");
         CoroutineScheduler* pScheduler = m_pScheduler;
         m_pQueue->setOnValueAvailableOnceCallback([pScheduler, thisHandler]() {
-            CARPAL_LOG_DEBUG("StreamSourceElementAwaiter marking ready");
-            pScheduler->markRunnable(thisHandler);
+            //CARPAL_LOG_DEBUG("StreamSourceElementAwaiter marking ready");
+            pScheduler->markRunnable(thisHandler, true);
         });
     }
     StreamValue<Item,Eof> await_resume() {
-        CARPAL_LOG_DEBUG("StreamSourceElementAwaiter at ", static_cast<void const*>(this), " await_resume() resumed");
+        //CARPAL_LOG_DEBUG("StreamSourceElementAwaiter at ", static_cast<void const*>(this), " await_resume() resumed");
         return m_pQueue->dequeue();
     }
 
 private:
     CoroutineScheduler* m_pScheduler;
-    IntrusiveSharedPtr<SingleProducerSingleConsumerQueue<Item,Eof> > m_pQueue;
+    SingleProducerSingleConsumerQueue<Item,Eof>* m_pQueue;
 };
 
 template<typename Item, typename Eof>
 StreamSourceElementAwaiter<Item,Eof> create_awaiter(CoroutineScheduler* pScheduler, StreamSource<Item,Eof> const& streamSource) {
-    return StreamSourceElementAwaiter<Item,Eof>(pScheduler, streamSource.queue());
+    return StreamSourceElementAwaiter<Item,Eof>(pScheduler, streamSource.queuePtr());
 }
 
 /** @brief Awaiter for dequeueing an item from a StreamSource<Item,void>
@@ -482,7 +491,7 @@ StreamSourceElementAwaiter<Item,Eof> create_awaiter(CoroutineScheduler* pSchedul
 template<typename Item>
 class StreamSourceItemAwaiter {
 public:
-    StreamSourceItemAwaiter(CoroutineScheduler* pScheduler, IntrusiveSharedPtr<SingleProducerSingleConsumerQueue<Item,void> > pQueue)
+    StreamSourceItemAwaiter(CoroutineScheduler* pScheduler, SingleProducerSingleConsumerQueue<Item,void>* pQueue)
         :m_pScheduler(pScheduler),
         m_pQueue(pQueue)
         {}
@@ -501,7 +510,7 @@ public:
         CoroutineScheduler* pScheduler = m_pScheduler;
         m_pQueue->setOnValueAvailableOnceCallback([pScheduler, thisHandler]() {
             CARPAL_LOG_DEBUG("StreamSourceItemAwaiter marking ready");
-            pScheduler->markRunnable(thisHandler);
+            pScheduler->markRunnable(thisHandler, true);
         });
     }
     std::optional<Item> await_resume() {
@@ -518,12 +527,12 @@ public:
 
 private:
     CoroutineScheduler* m_pScheduler;
-    IntrusiveSharedPtr<SingleProducerSingleConsumerQueue<Item,void> > m_pQueue;
+    SingleProducerSingleConsumerQueue<Item,void>* m_pQueue;
 };
 
 template<typename Item>
 StreamSourceItemAwaiter<Item> create_awaiter(CoroutineScheduler* pScheduler, StreamSourceItemAwaiterTag<Item> const& streamSource) {
-    return StreamSourceItemAwaiter<Item>(pScheduler, streamSource.queue());
+    return StreamSourceItemAwaiter<Item>(pScheduler, streamSource.queuePtr());
 }
 
 /** @brief Awaiter for creating an iterator
@@ -550,7 +559,7 @@ public:
         CoroutineScheduler* pScheduler = m_pScheduler;
         m_pQueue->setOnValueAvailableOnceCallback([pScheduler, thisHandler]() {
             CARPAL_LOG_DEBUG("StreamSourceIteratorCreatorAwaiter marking ready");
-            pScheduler->markRunnable(thisHandler);
+            pScheduler->markRunnable(thisHandler, true);
         });
     }
     StreamSourceCoroIterator<Item> await_resume() {
@@ -592,7 +601,7 @@ public:
         CoroutineScheduler* pScheduler = m_pScheduler;
         m_pIterator->m_pQueue->setOnValueAvailableOnceCallback([pScheduler, thisHandler]() {
             CARPAL_LOG_DEBUG("StreamSourceIteratorIncrementAwaiter marking ready");
-            pScheduler->markRunnable(thisHandler);
+            pScheduler->markRunnable(thisHandler, true);
         });
     }
     void await_resume() {

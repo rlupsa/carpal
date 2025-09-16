@@ -68,7 +68,7 @@ namespace testns {
             CARPAL_LOG_DEBUG("Suspending coroutine ", consumerHandler.address());
             m_pCell->addCallback([pScheduler=m_pScheduler,consumerHandler](){
                 CARPAL_LOG_DEBUG("Setting to resume coroutine ", consumerHandler.address());
-                pScheduler->markRunnable(consumerHandler);
+                pScheduler->markRunnable(consumerHandler, false);
             });
         }
         int await_resume() const {

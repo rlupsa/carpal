@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <deque>
+#include <map>
 #include <queue>
 #include <vector>
 #include <thread>
@@ -37,7 +38,7 @@ public:
 #ifdef ENABLE_COROUTINES
     bool initSwitchThread() const override;
 
-    void markRunnable(std::coroutine_handle<void> h) override;
+    void markRunnable(std::coroutine_handle<void> h, bool expectEndSoon) override;
 #endif // ENABLE_COROUTINES
 
     void markCompleted(const void* id) override;
@@ -53,12 +54,17 @@ public:
     }
 #endif // ENABLE_COROUTINES
 
+    void const* address() const override;
+
 private:
     void threadFunc();
 
     std::mutex m_mtx;
     std::condition_variable m_cv;
     std::queue<std::function<void()> > m_tasks;
+#ifdef ENABLE_COROUTINES
+    std::map<std::thread::id, std::coroutine_handle<void> > m_nextCoroutineForThread;
+#endif // ENABLE_COROUTINES
     bool m_isEnding = false;
 
 #ifdef ENABLE_COROUTINES

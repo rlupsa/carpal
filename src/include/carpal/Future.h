@@ -822,7 +822,7 @@ public:
     void await_suspend(std::coroutine_handle<void> thisHandler) {
         CoroutineScheduler* pScheduler = m_pScheduler;
         m_pFuture.addSynchronousCallback([pScheduler, thisHandler]() {
-            pScheduler->markRunnable(thisHandler);
+            pScheduler->markRunnable(thisHandler, true);
         });
     }
     T await_resume() {

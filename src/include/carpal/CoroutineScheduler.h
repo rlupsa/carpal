@@ -32,8 +32,11 @@ public:
      * Calling this function means the coroutine itself can be scheduled. However, depending on the scheduling policy,
      * the coroutine will run as soon as there is an available thread, or when someone calls get() or some other such function.
      * */
-    virtual void markRunnable(std::coroutine_handle<void> h) = 0;
+    virtual void markRunnable(std::coroutine_handle<void> h, bool expect_end_soon) = 0;
 
+    /** @brief Address of the scheduler, for logging purposes
+     * */
+    virtual void const* address() const = 0;
 };
 
 enum class CoroutineStart {
@@ -72,8 +75,8 @@ public:
     bool initSwitchThread() const {
         return m_startInfo == CoroutineStart::parallel || m_pScheduler->initSwitchThread();
     }
-    void markRunnable(std::coroutine_handle<void> h) {
-        m_pScheduler->markRunnable(h);
+    void markRunnable(std::coroutine_handle<void> h, bool expect_end_soon) {
+        m_pScheduler->markRunnable(h, expect_end_soon);
     }
     void markCompleted(const void* id) {
         m_pScheduler->markCompleted(id);
@@ -100,8 +103,9 @@ public:
         return m_schedulingInfo.startInfo() == CoroutineStart::sameThread && !m_schedulingInfo.scheduler()->initSwitchThread();
     }
     void await_suspend(std::coroutine_handle<void> thisHandler) {
-        CARPAL_LOG_DEBUG("SwitchThreadAwaiter::await_suspend() making coroutine ", thisHandler.address(), " runnable");
-        m_schedulingInfo.scheduler()->markRunnable(thisHandler);
+        CARPAL_LOG_DEBUG("SwitchThreadAwaiter::await_suspend() making coroutine ", thisHandler.address(),
+            " runnable on scheduler ", m_schedulingInfo.scheduler()->address());
+        m_schedulingInfo.scheduler()->markRunnable(thisHandler, false);
         CARPAL_LOG_DEBUG("SwitchThreadAwaiter::await_suspend() after");
     }
     void await_resume() {

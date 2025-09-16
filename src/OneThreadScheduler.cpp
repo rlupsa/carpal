@@ -31,7 +31,7 @@ bool carpal::OneThreadScheduler::initSwitchThread() const {
     return std::this_thread::get_id() != m_threadId;
 }
 
-void carpal::OneThreadScheduler::markRunnable(std::coroutine_handle<void> h) {
+void carpal::OneThreadScheduler::markRunnable(std::coroutine_handle<void> h, bool /*expect_end_soon*/) {
     std::unique_lock<std::mutex> lck(m_mtx);
     m_runnableHandlers.push(h);
     m_cv.notify_one();
@@ -89,6 +89,10 @@ void carpal::OneThreadScheduler::waitFor(const void* id) {
             m_cv.wait(lck);
         }
     }
+}
+
+void const* carpal::OneThreadScheduler::address() const {
+    return this;
 }
 
 void carpal::OneThreadScheduler::runAllPending() {

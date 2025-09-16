@@ -23,7 +23,7 @@ public:
 
     bool initSwitchThread() const override;
 
-    void markRunnable(std::coroutine_handle<void> h) override;
+    void markRunnable(std::coroutine_handle<void> h, bool expect_end_soon) override;
 
     void markCompleted(const void* id) override;
 
@@ -37,6 +37,8 @@ public:
     }
 
     void runAllPending();
+
+    void const* address() const override;
 
 private:
     std::thread::id const m_threadId;

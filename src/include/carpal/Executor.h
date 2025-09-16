@@ -24,6 +24,9 @@ public:
      * */
     virtual void waitFor(const void* id) = 0;
 
+    /** @brief Address of the executor, for logging purposes
+     * */
+    virtual void const* address() const = 0;
 };
 
 Executor* defaultExecutor();

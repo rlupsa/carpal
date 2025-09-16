@@ -38,11 +38,24 @@ bool carpal::ThreadPool::initSwitchThread() const {
     return false;
 }
 
-void carpal::ThreadPool::markRunnable(std::coroutine_handle<void> h) {
+void carpal::ThreadPool::markRunnable(std::coroutine_handle<void> h, bool expectEndSoon) {
     std::unique_lock<std::mutex> lck(m_mtx);
-    m_runnableHandlers.push(h);
-    m_cv.notify_one();
-    CARPAL_LOG_DEBUG("Coroutine ", h.address(), " marked runnable on thread pool @", static_cast<void const*>(this));
+    bool onCurrentThread = expectEndSoon;
+    if(expectEndSoon) {
+        auto it = m_nextCoroutineForThread.find(std::this_thread::get_id());
+        if (it != m_nextCoroutineForThread.end() && it->second == nullptr) {
+            it->second = h;
+        } else {
+            onCurrentThread = false;
+        }
+    }
+    if(!onCurrentThread) {
+        m_runnableHandlers.push(h);
+        m_cv.notify_one(); // TODO: only if thread available
+        CARPAL_LOG_DEBUG("Coroutine ", h.address(), " marked runnable on thread pool @", static_cast<void const*>(this));
+    } else {
+        CARPAL_LOG_DEBUG("Coroutine ", h.address(), " will run on the current thread after the current activity ends on thread pool @", static_cast<void const*>(this));
+    }
 }
 #endif // ENABLE_COROUTINES
 
@@ -56,15 +69,39 @@ void carpal::ThreadPool::markCompleted(const void* id) {
 void carpal::ThreadPool::waitFor(const void* id) {
     std::unique_lock<std::mutex> lck(m_mtx);
     CARPAL_LOG_DEBUG("ThreadPool::waitFor(): Will run other things until waiter ", id, " is runnable");
+#ifdef ENABLE_COROUTINES
+    auto coroInsertResult = m_nextCoroutineForThread.emplace(std::this_thread::get_id(), nullptr);
+    std::coroutine_handle<void>& coroThisThread(coroInsertResult.first->second);
+#endif // ENABLE_COROUTINES
     while (true) {
         auto waiterIter = m_finishedWaiters.find(id);
         if(waiterIter != m_finishedWaiters.end()) {
             m_finishedWaiters.erase(waiterIter);
+#ifdef ENABLE_COROUTINES
+            if(coroThisThread != nullptr) {
+                std::coroutine_handle<void> h = std::move(coroThisThread);
+                m_nextCoroutineForThread.erase(coroInsertResult.first);
+                CARPAL_LOG_DEBUG("ThreadPool::waitFor(): Waiter id ", id, " completed, but there is first a coroutine to run: ", h.address());
+                lck.unlock();
+                h.resume();
+                lck.lock();
+                CARPAL_LOG_DEBUG("ThreadPool::waitFor(): Waiter id ", id, " completed, coroutine completed, returning");
+                return;
+            }
+            m_nextCoroutineForThread.erase(coroInsertResult.first);
+#endif // ENABLE_COROUTINES
             CARPAL_LOG_DEBUG("ThreadPool::waitFor(): Waiter id ", id, " completed");
             return;
         }
 #ifdef ENABLE_COROUTINES
-        if(!m_runnableHandlers.empty()) {
+        if(coroThisThread != nullptr) {
+            std::coroutine_handle<void> h = std::move(coroThisThread);
+            coroThisThread = nullptr;
+            CARPAL_LOG_DEBUG("ThreadPool::waitFor(): Resuming coroutine (set on current thread) ", h.address());
+            lck.unlock();
+            h.resume();
+            lck.lock();
+        } else if(!m_runnableHandlers.empty()) {
             std::coroutine_handle<void> h = m_runnableHandlers.front();
             m_runnableHandlers.pop();
             CARPAL_LOG_DEBUG("ThreadPool::waitFor(): Resuming coroutine ", h.address());
@@ -87,13 +124,28 @@ void carpal::ThreadPool::waitFor(const void* id) {
     }
 }
 
+void const* carpal::ThreadPool::address() const {
+    return this;
+}
+
 void carpal::ThreadPool::threadFunc()
 {
     CARPAL_LOG_DEBUG("ThreadPool::threadFunc(): Starting thread on thread pool");
     std::unique_lock<std::mutex> lck(m_mtx);
+#ifdef ENABLE_COROUTINES
+    auto coroInsertResult = m_nextCoroutineForThread.emplace(std::this_thread::get_id(), nullptr);
+    std::coroutine_handle<void>& coroThisThread(coroInsertResult.first->second);
+#endif // ENABLE_COROUTINES
     while(true) {
 #ifdef ENABLE_COROUTINES
-        if(!m_runnableHandlers.empty()) {
+        if(coroThisThread != nullptr) {
+            std::coroutine_handle<void> h = std::move(coroThisThread);
+            coroThisThread = nullptr;
+            CARPAL_LOG_DEBUG("ThreadPool::waitFor(): Resuming coroutine (set on current thread) ", h.address());
+            lck.unlock();
+            h.resume();
+            lck.lock();
+        } else if(!m_runnableHandlers.empty()) {
             std::coroutine_handle<void> h = m_runnableHandlers.front();
             m_runnableHandlers.pop();
             lck.unlock();
